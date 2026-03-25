@@ -8,7 +8,6 @@ __pycache__/
 .venv/
 venv/
 .env
-.env.*
 .pytest_cache/
 .mypy_cache/
 .coverage
@@ -21,4 +20,15 @@ instance/
 
 # Editor / OS
 .vscode/
+.idea/
 .DS_Store
+
+# Backend
+backend/.env
+backend/.venv/
+
+# Data files
+*.xlsx
+
+# Legacy (삭제 후보 — backend/ 반영 완료)
+legacy/
