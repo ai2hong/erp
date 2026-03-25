@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+.venv/
+venv/
+.env
+.env.*
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# Flask instance / local DB
+instance/
+*.db
+*.sqlite3
+
+# Editor / OS
+.vscode/
+.DS_Store
