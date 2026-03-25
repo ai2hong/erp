@@ -1,0 +1,27 @@
+# VAPE DOG ERP 백엔드 패키지 목록
+# 설치: pip install -r requirements.txt
+
+# ── 웹 프레임워크 ─────────────────────────────────
+fastapi==0.115.0
+uvicorn[standard]==0.30.0      # 서버 실행기
+
+# ── 데이터베이스 ──────────────────────────────────
+sqlalchemy[asyncio]==2.0.35
+asyncpg==0.30.0                # PostgreSQL 비동기 드라이버
+alembic==1.13.0                # DB 마이그레이션
+
+# ── 인증 / 보안 ───────────────────────────────────
+passlib[bcrypt]==1.7.4         # 비밀번호 해싱
+bcrypt<5                       # passlib 1.7.x 호환성 유지
+python-jose[cryptography]==3.3.0  # JWT 토큰
+
+# ── 설정 관리 ─────────────────────────────────────
+pydantic==2.9.0
+pydantic-settings==2.5.0       # .env 파일 로드
+
+# ── 개발 도구 ─────────────────────────────────────
+python-dotenv==1.0.0
+httpx==0.27.0                  # API 테스트용
+
+# ── 데이터 시드 ──────────────────────────────────
+openpyxl==3.1.5                # XLSX 파싱 (상품 시드)
