@@ -120,15 +120,15 @@ class TxCreateRequest(BaseModel):
 
 async def _generate_tx_number(db: AsyncSession, store_id: int) -> str:
     today = date.today()
-    prefix = today.strftime("%y%m%d")
+    prefix = "%s-S%d" % (today.strftime("%y%m%d"), store_id)
     count = await db.scalar(
         select(sa_func.count(Transaction.id)).where(
-            Transaction.tx_number.like(f"{prefix}-%"),
+            Transaction.tx_number.like(prefix + "-%"),
             Transaction.store_id == store_id,
         )
     )
     seq = (count or 0) + 1
-    return f"{prefix}-{seq:03d}"
+    return "%s-%03d" % (prefix, seq)
 
 
 # ── 엔드포인트 ───────────────────────────────────────────────
