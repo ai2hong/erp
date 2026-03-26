@@ -162,9 +162,25 @@ header .user-info span { color: #e94560; font-weight: bold; }
       </select>
       <input id="mileageUsed" type="number" placeholder="적립금 사용액" value="0" min="0">
 
+      <!-- Discount -->
+      <div style="display:flex;gap:6px;margin-bottom:6px">
+        <input id="discountAmount" type="number" placeholder="할인금액" value="0" min="0" style="flex:1" oninput="renderCart()">
+        <input id="discountReason" type="text" placeholder="할인 사유" style="flex:2">
+      </div>
+
+      <!-- Staff memo -->
+      <input id="staffMemo" type="text" placeholder="직원 메모 (선택)" style="margin-bottom:6px">
+
+      <!-- Adult verification -->
+      <label style="display:flex;align-items:center;gap:6px;margin-bottom:8px;font-size:13px;cursor:pointer">
+        <input type="checkbox" id="adultVerified" checked> 성인 인증 확인
+      </label>
+
       <!-- Totals -->
       <div class="row"><span>소계</span><span id="subtotalDisplay">0원</span></div>
+      <div class="row" id="discountRow" style="display:none;color:#ffa502"><span>할인</span><span id="discountDisplay">0원</span></div>
       <div class="row total"><span>합계</span><span id="totalDisplay">0원</span></div>
+      <div class="row" id="earnRow" style="display:none;color:#2ecc71;font-size:12px"><span>예상 적립</span><span id="earnDisplay">0원</span></div>
 
       <button class="save-btn" id="saveBtn" onclick="saveTransaction()" disabled>저장 확정</button>
     </div>
@@ -175,7 +191,7 @@ header .user-info span { color: #e94560; font-weight: bold; }
 // ══════════════════════════════════════════════
 // State
 // ══════════════════════════════════════════════
-const API = 'http://localhost:8000';
+const API = window.location.port === '8000' ? '' : 'http://localhost:8000';
 let token = localStorage.getItem('erp_token') || '';
 let currentUser = null;
 let products = [];
@@ -396,6 +412,8 @@ function renderCart() {
     el.innerHTML = '<div style="color:#888;padding:20px;text-align:center">상품을 선택하세요</div>';
     document.getElementById('subtotalDisplay').textContent = '0원';
     document.getElementById('totalDisplay').textContent = '0원';
+    document.getElementById('discountRow').style.display = 'none';
+    document.getElementById('earnRow').style.display = 'none';
     document.getElementById('saveBtn').disabled = true;
     return;
   }
@@ -415,10 +433,43 @@ function renderCart() {
 
   const calc = calcFrontendTotal();
   const mileage = parseInt(document.getElementById('mileageUsed').value) || 0;
-  const total = Math.max(0, calc.subtotal - mileage);
+  const discount = parseInt(document.getElementById('discountAmount').value) || 0;
+  const total = Math.max(0, calc.subtotal - discount - mileage);
   document.getElementById('subtotalDisplay').textContent = formatPrice(calc.subtotal);
   document.getElementById('totalDisplay').textContent = formatPrice(total);
+
+  // Show discount row
+  const discountRow = document.getElementById('discountRow');
+  if (discount > 0) {
+    discountRow.style.display = 'flex';
+    document.getElementById('discountDisplay').textContent = '-' + formatPrice(discount);
+  } else {
+    discountRow.style.display = 'none';
+  }
+
+  // Estimated mileage earn
+  const payMethod = document.getElementById('paymentMethod').value;
+  const cardAmount = payMethod === '카드' ? total : 0;
+  const isHighPod = cart.some(c => ['입호흡 코일(고가)', '폐호흡 코일(고가)'].includes(c.product.category));
+  const nature = calcPaymentNature(total, cardAmount, mileage);
+  const earnEligible = !isHighPod && (nature === '현금이체' || nature === '현금이체_카드20이하');
+  const earnRow = document.getElementById('earnRow');
+  if (earnEligible && total > 0) {
+    const earn = Math.floor(total * 0.01 / 10) * 10;
+    earnRow.style.display = 'flex';
+    document.getElementById('earnDisplay').textContent = '+' + formatPrice(earn);
+  } else {
+    earnRow.style.display = 'none';
+  }
+
   document.getElementById('saveBtn').disabled = false;
+}
+
+function calcPaymentNature(total, cardAmount, mileageUsed) {
+  if (total <= 0 && mileageUsed > 0) return '마일리지전액';
+  if (cardAmount <= 0) return '현금이체';
+  if (total > 0 && (cardAmount / total * 100) <= 20) return '현금이체_카드20이하';
+  return '카드';
 }
 
 // ── Frontend price calculation (mirrors price_engine) ──
@@ -542,11 +593,23 @@ async function saveTransaction() {
   saveBtn.textContent = '저장 중...';
 
   const mileageUsed = parseInt(document.getElementById('mileageUsed').value) || 0;
+  const discountAmount = parseInt(document.getElementById('discountAmount').value) || 0;
+  const discountReason = document.getElementById('discountReason').value.trim();
+  const staffMemo = document.getElementById('staffMemo').value.trim();
+  const adultVerified = document.getElementById('adultVerified').checked;
   const paymentMethod = document.getElementById('paymentMethod').value;
   const channel = document.getElementById('channelSelect').value;
 
+  // Validate discount reason
+  if (discountAmount > 0 && !discountReason) {
+    showToast('할인 사유를 입력해주세요.', true);
+    saveBtn.disabled = false;
+    saveBtn.textContent = '저장 확정';
+    return;
+  }
+
   const frontCalc = calcFrontendTotal();
-  const frontTotal = Math.max(0, frontCalc.subtotal - mileageUsed);
+  const frontTotal = Math.max(0, frontCalc.subtotal - discountAmount - mileageUsed);
 
   const body = {
     channel,
@@ -554,8 +617,12 @@ async function saveTransaction() {
     store_id: currentUser.store_id,
     lines: cart.map(c => ({ product_id: c.product.id, quantity: c.quantity })),
     payments: [{ method: paymentMethod, amount: frontTotal }],
+    discount_amount: discountAmount,
+    discount_reason: discountReason || null,
     mileage_used: mileageUsed,
     card_ratio_pct: paymentMethod === '카드' ? 100 : 0,
+    adult_verified: adultVerified,
+    staff_memo: staffMemo || null,
   };
 
   try {
@@ -593,12 +660,18 @@ async function saveTransaction() {
 }
 
 function onSaveSuccess(result) {
-  showToast(`저장 완료 (${result.tx_number}) - ${formatPrice(result.total_amount)}`);
+  let msg = `저장 완료 (${result.tx_number}) - ${formatPrice(result.total_amount)}`;
+  if (result.mileage_earned > 0) msg += ` | 적립 ${formatPrice(result.mileage_earned)}`;
+  showToast(msg);
   cart = [];
   selectedCustomer = null;
   document.getElementById('customerInfo').style.display = 'none';
   document.getElementById('customerSearch').value = '';
   document.getElementById('mileageUsed').value = '0';
+  document.getElementById('discountAmount').value = '0';
+  document.getElementById('discountReason').value = '';
+  document.getElementById('staffMemo').value = '';
+  document.getElementById('adultVerified').checked = true;
   renderCart();
   document.getElementById('saveBtn').textContent = '저장 확정';
 }
@@ -624,6 +697,8 @@ async function initApp() {
   renderCategories();
   await loadProducts();
   document.getElementById('mileageUsed').addEventListener('input', renderCart);
+  document.getElementById('paymentMethod').addEventListener('change', renderCart);
+  document.getElementById('discountAmount').addEventListener('input', renderCart);
 }
 
 // Auto-login check
