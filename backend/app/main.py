@@ -7,10 +7,12 @@ main.py — VAPE DOG ERP FastAPI 앱 진입점
 API 문서 확인:
   http://localhost:8000/docs
 """
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 from app.database import create_tables
@@ -52,7 +54,7 @@ app = FastAPI(
 # ── CORS 설정 ─────────────────────────────────────────────────
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
+    allow_origins=["*"] if settings.DEBUG else [
         "http://localhost:5173",
         "http://localhost:3000",
     ],
@@ -85,3 +87,9 @@ async def root():
 @app.get("/health", tags=["시스템"])
 async def health():
     return {"status": "ok"}
+
+
+# ── 정적 파일 (목업 UI) ────────────────────────────────────
+_static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+if os.path.isdir(_static_dir):
+    app.mount("/ui", StaticFiles(directory=_static_dir, html=True), name="ui")
