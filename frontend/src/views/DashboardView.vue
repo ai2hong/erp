@@ -42,11 +42,11 @@
         </div>
         <table class="tw">
           <thead>
-            <tr><th>시각</th><th>채널</th><th>금액</th><th>색상</th></tr>
+            <tr><th>시각</th><th>채널</th><th>금액</th><th>색상</th><th>담당</th></tr>
           </thead>
           <tbody>
-            <tr v-if="loading"><td colspan="4" class="empty">로딩 중…</td></tr>
-            <tr v-else-if="!transactions.length"><td colspan="4" class="empty">오늘 거래가 없습니다</td></tr>
+            <tr v-if="loading"><td colspan="5" class="empty">로딩 중…</td></tr>
+            <tr v-else-if="!transactions.length"><td colspan="5" class="empty">오늘 거래가 없습니다</td></tr>
             <tr v-for="tx in transactions" :key="tx.id">
               <td class="mono">{{ fmtTime(tx.created_at) }}</td>
               <td>{{ tx.channel }}</td>
@@ -59,6 +59,7 @@
                   'tag-pu': tx.tx_color === '교환',
                 }">{{ tx.tx_color }}</span>
               </td>
+              <td style="font-size:11px;color:var(--tx2)">{{ tx.staff_name || '—' }}</td>
             </tr>
           </tbody>
         </table>

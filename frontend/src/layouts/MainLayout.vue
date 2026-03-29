@@ -28,8 +28,13 @@
       </router-link>
       <router-link to="/unpaid" custom v-slot="{ navigate, isActive }">
         <div class="ni" :class="{ on: isActive }" @click="navigate">
-          <span class="ni-ic">◌</span>미지급 서비스
+          <span class="ni-ic">◌</span>미수령
           <span v-if="badges.unpaid" class="nb">{{ badges.unpaid }}</span>
+        </div>
+      </router-link>
+      <router-link to="/as-management" custom v-slot="{ navigate, isActive }">
+        <div class="ni" :class="{ on: isActive }" @click="navigate">
+          <span class="ni-ic">◫</span>A/S 관리
         </div>
       </router-link>
       <router-link to="/reserve" custom v-slot="{ navigate, isActive }">
@@ -125,7 +130,8 @@ const PAGE_TITLES = {
   '/dashboard': '대시보드',
   '/sale':      '판매 등록',
   '/customer':  '회원목록',
-  '/unpaid':    '미지급 서비스',
+  '/unpaid':    '미수령',
+  '/as-management': 'A/S 관리',
   '/reserve':   '예약 주문',
   '/stock':     '재고 현황',
   '/dayclose':  '일마감',

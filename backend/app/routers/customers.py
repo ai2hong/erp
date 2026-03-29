@@ -8,7 +8,7 @@ GET  /customers/{id}/mileage     — 적립금 이력
 GET  /customers/{id}/transactions — 전체 구매 이력
 GET  /customers/{id}/devices     — 기기 구매 이력
 GET  /customers/{id}/as-cases    — A/S 내역
-GET  /customers/{id}/unpaid      — 미지급 서비스
+GET  /customers/{id}/unpaid      — 미수령
 GET  /customers/{id}/reservations — 예약 주문
 """
 from fastapi import APIRouter, Depends, Query, HTTPException
@@ -24,6 +24,7 @@ from app.models.product import Product, DEVICE_ALL
 from app.models.as_case import AsCase
 from app.models.unpaid_service import UnpaidService
 from app.models.reservation import Reservation
+from app.models.staff import Staff
 from app.core.deps import get_current_staff
 from pydantic import BaseModel
 from typing import Optional
@@ -215,13 +216,15 @@ async def get_tx_history(
     current_staff=Depends(get_current_staff),
 ):
     result = await db.execute(
-        select(Transaction)
+        select(Transaction, Staff)
+        .outerjoin(Staff, Transaction.staff_id == Staff.id)
         .where(Transaction.customer_id == customer_id)
         .options(selectinload(Transaction.lines).joinedload(TransactionLine.product))
         .order_by(Transaction.created_at.desc())
         .limit(200)
     )
-    txs = result.scalars().all()
+    rows = result.all()
+    txs = [(t, s) for t, s in rows]
 
     def _summary(tx):
         normal = [l for l in tx.lines if not l.is_service]
@@ -248,8 +251,9 @@ async def get_tx_history(
             "mileage_used":   t.mileage_used,
             "created_at":     t.created_at,
             "summary":        _summary(t),
+            "staff_name":     s.name if s else None,
         }
-        for t in txs
+        for t, s in txs
     ]
 
 
@@ -314,7 +318,7 @@ async def get_as_cases(
     ]
 
 
-# ── 미지급 서비스 ─────────────────────────────────────────────
+# ── 미수령 ─────────────────────────────────────────────
 @router.get("/{customer_id}/unpaid")
 async def get_unpaid(
     customer_id: int,
@@ -322,11 +326,13 @@ async def get_unpaid(
     current_staff=Depends(get_current_staff),
 ):
     result = await db.execute(
-        select(UnpaidService)
+        select(UnpaidService, Staff)
+        .outerjoin(Transaction, UnpaidService.transaction_id == Transaction.id)
+        .outerjoin(Staff, Transaction.staff_id == Staff.id)
         .where(UnpaidService.customer_id == customer_id)
         .order_by(UnpaidService.created_at.desc())
     )
-    rows = result.scalars().all()
+    rows = result.all()
     return [
         {
             "id":            r.id,
@@ -336,8 +342,9 @@ async def get_unpaid(
             "is_fulfilled":  r.is_fulfilled,
             "note":          r.note,
             "created_at":    r.created_at,
+            "staff_name":    s.name if s else None,
         }
-        for r in rows
+        for r, s in rows
     ]
 
 
@@ -349,11 +356,12 @@ async def get_reservations(
     current_staff=Depends(get_current_staff),
 ):
     result = await db.execute(
-        select(Reservation)
+        select(Reservation, Staff)
+        .outerjoin(Staff, Reservation.reserved_by == Staff.id)
         .where(Reservation.customer_id == customer_id)
         .order_by(Reservation.created_at.desc())
     )
-    rows = result.scalars().all()
+    rows = result.all()
     return [
         {
             "id":         r.id,
@@ -362,6 +370,7 @@ async def get_reservations(
             "status":     r.status,
             "note":       r.note,
             "created_at": r.created_at,
+            "staff_name": s.name if s else None,
         }
-        for r in rows
+        for r, s in rows
     ]

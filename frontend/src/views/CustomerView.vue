@@ -198,11 +198,11 @@
               <thead>
                 <tr>
                   <th>거래번호</th><th>일시</th><th>내용</th>
-                  <th>결제</th><th class="num">금액</th><th class="num">적립</th><th>상태</th>
+                  <th>결제</th><th class="num">금액</th><th class="num">적립</th><th>상태</th><th>담당</th>
                 </tr>
               </thead>
               <tbody>
-                <tr v-if="!txVisible.length"><td colspan="7" class="empty">거래 내역 없음</td></tr>
+                <tr v-if="!txVisible.length"><td colspan="8" class="empty">거래 내역 없음</td></tr>
                 <tr v-for="t in txVisible" :key="t.id" class="clickable-row" @click="openTxDetail(t.id)">
                   <td class="mono" style="font-size:10px;white-space:nowrap">{{ t.tx_number }}</td>
                   <td class="mono" style="font-size:10px;white-space:nowrap">{{ fmtDt(t.created_at) }}</td>
@@ -213,6 +213,7 @@
                     {{ t.mileage_earned > 0 ? '+'+t.mileage_earned.toLocaleString() : '0' }}
                   </td>
                   <td><span class="tag" :class="colorClass(t.tx_color)">{{ txLabel(t.tx_color) }}</span></td>
+                  <td style="font-size:11px;color:var(--tx2)">{{ t.staff_name || '—' }}</td>
                 </tr>
               </tbody>
             </table>
@@ -301,15 +302,15 @@
           </div>
         </div>
 
-        <!-- ── 미지급 서비스 ── -->
+        <!-- ── 미수령 ── -->
         <div v-if="tab==='unpaid'" class="tab-body">
-          <div class="tb-hd"><span class="tb-title">미지급 서비스</span></div>
+          <div class="tb-hd"><span class="tb-title">미수령</span></div>
           <div class="table-wrap">
             <table class="tw">
               <thead><tr><th>발생일</th><th>서비스 종류</th><th class="num">수량</th><th>처리</th><th>메모</th></tr></thead>
               <tbody>
                 <tr v-if="loadingUnpaid"><td colspan="5" class="empty">로딩 중…</td></tr>
-                <tr v-else-if="!unpaidList.length"><td colspan="5" class="empty good">미지급 서비스 없음 ✓</td></tr>
+                <tr v-else-if="!unpaidList.length"><td colspan="5" class="empty good">미수령 없음 ✓</td></tr>
                 <tr v-for="u in unpaidList" :key="u.id">
                   <td class="mono" style="font-size:10px">{{ fmtDt(u.created_at) }}</td>
                   <td>{{ u.service_type }}</td>
@@ -526,7 +527,7 @@ const tabs = computed(() => [
   { key: 'tx',     label: '구매 이력' },
   { key: 'mile',   label: '적립금 내역' },
   { key: 'as',     label: 'A/S 내역' },
-  { key: 'unpaid', label: '미지급 서비스', cnt: unpaidCount.value || 0 },
+  { key: 'unpaid', label: '미수령', cnt: unpaidCount.value || 0 },
   { key: 'rsv',    label: '예약 주문',     cnt: rsvCount.value || 0 },
 ])
 

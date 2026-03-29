@@ -16,6 +16,7 @@ from app.models.mileage_ledger import MileageLedger, MileageType
 from app.models.service_record import ServiceRecord
 from app.models.inventory import Inventory
 from app.models.inventory_move import InventoryMove, MoveType
+from app.models.staff import Staff
 from app.core.deps import get_current_staff
 from pydantic import BaseModel
 from typing import Optional, List
@@ -198,14 +199,15 @@ async def list_transactions(
 ):
     target_date = date.fromisoformat(tx_date) if tx_date else date.today()
     result = await db.execute(
-        select(Transaction)
+        select(Transaction, Staff)
+        .outerjoin(Staff, Transaction.staff_id == Staff.id)
         .where(
             Transaction.store_id == store_id,
             cast(Transaction.created_at, Date) == target_date,
         )
         .order_by(Transaction.created_at.desc())
     )
-    txs = result.scalars().all()
+    rows = result.all()
     return [
         {
             "id":           t.id,
@@ -214,8 +216,9 @@ async def list_transactions(
             "total_amount": t.total_amount,
             "tx_color":     t.tx_color,
             "created_at":   t.created_at,
+            "staff_name":   s.name if s else None,
         }
-        for t in txs
+        for t, s in rows
     ]
 
 
@@ -227,14 +230,16 @@ async def get_transaction(
 ):
     from sqlalchemy.orm import selectinload, joinedload
     result = await db.execute(
-        select(Transaction)
+        select(Transaction, Staff)
+        .outerjoin(Staff, Transaction.staff_id == Staff.id)
         .where(Transaction.id == tx_id)
         .options(
             selectinload(Transaction.lines).joinedload(TransactionLine.product),
             selectinload(Transaction.payments),
         )
     )
-    tx = result.scalar_one_or_none()
+    row = result.first()
+    tx, staff = (row[0], row[1]) if row else (None, None)
     if not tx:
         raise HTTPException(404, "거래를 찾을 수 없습니다")
     return {
@@ -251,6 +256,7 @@ async def get_transaction(
         "mileage_earned": tx.mileage_earned,
         "total_amount":   tx.total_amount,
         "staff_memo":     tx.staff_memo,
+        "staff_name":     staff.name if staff else None,
         "created_at":     tx.created_at,
         "lines": [
             {

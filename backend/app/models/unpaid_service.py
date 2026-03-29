@@ -1,4 +1,4 @@
-"""미지급 서비스 모델"""
+"""미수령 모델"""
 from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.database import Base

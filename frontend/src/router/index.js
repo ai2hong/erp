@@ -18,6 +18,7 @@ const routes = [
       { path: 'sale',      name: 'Sale',        component: () => import('@/views/SaleView.vue') },
       { path: 'customer',  name: 'Customer',    component: () => import('@/views/CustomerView.vue') },
       { path: 'unpaid',    name: 'Unpaid',      component: () => import('@/views/UnpaidView.vue') },
+      { path: 'as-management', name: 'AsManagement', component: () => import('@/views/AsManagementView.vue') },
       { path: 'reserve',   name: 'Reserve',     component: () => import('@/views/ReservationView.vue') },
       { path: 'stock',     name: 'Stock',       component: () => import('@/views/StockView.vue') },
       { path: 'transfers', name: 'Transfers',   component: () => import('@/views/TransfersView.vue') },

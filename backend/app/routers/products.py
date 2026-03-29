@@ -61,6 +61,26 @@ async def get_products(
     ]
 
 
+DEVICE_CATEGORIES = ["입호흡 기기", "입호흡 기기(단일가)", "폐호흡 기기", "폐호흡 기기(단일가)"]
+
+@router.get("/search")
+async def search_products(
+    q: str = Query(..., min_length=1),
+    device_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    stmt = select(Product).where(
+        Product.name.contains(q),
+        Product.sale_status != SaleStatus.단종,
+    )
+    if device_only:
+        stmt = stmt.where(Product.category.in_(DEVICE_CATEGORIES))
+    result = await db.execute(stmt.order_by(Product.name).limit(20))
+    products = result.scalars().all()
+    return [{"id": p.id, "name": p.name, "category": p.category} for p in products]
+
+
 @router.get("/{product_id}")
 async def get_product(
     product_id: int,
