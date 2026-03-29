@@ -1,1 +1,0 @@
-import{_ as t,c as n,b as s,j as o}from"./index-DcKnJrmU.js";const r={},a={class:"view-stub"};function c(i,e){return o(),n("div",a,[...e[0]||(e[0]=[s("h2",null,"ReservationView",-1),s("p",null,"준비 중",-1)])])}const _=t(r,[["render",c]]);export{_ as default};
