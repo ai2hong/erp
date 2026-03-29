@@ -101,7 +101,7 @@ class RefreshRequest(BaseModel):
 
 class ApproveRequest(BaseModel):
     request_id:   int
-    role_granted: StaffRole = StaffRole.판매사원
+    role_granted: StaffRole = StaffRole.시니어
     store_id:     Optional[int] = None   # None 이면 신청 매장 그대로 사용
 
 
@@ -175,11 +175,6 @@ async def login(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse:
     """
-    ⚠️  운영 환경 배포 전 필수 추가 사항:
-        slowapi 또는 nginx rate limit 으로 IP당 로그인 시도를 제한하세요.
-        예시: pip install slowapi → @limiter.limit("5/minute") 데코레이터 적용
-        미적용 시 브루트포스 공격에 노출됩니다.
-
     로그인 처리 순서:
       1. 비밀번호 검증 (실패 시 이력 저장)
       2. 기존 세션 강제 만료 → 강제로그아웃 이력 저장
@@ -475,7 +470,7 @@ async def approve(
     await db.flush()
 
     # 총괄·매니저면 StaffStoreAccess 행 생성
-    if body.role_granted in (StaffRole.총괄, StaffRole.매니저):
+    if body.role_granted in (StaffRole.총괄, StaffRole.시니어):
         db.add(StaffStoreAccess(staff_id=new_staff.id, store_id=target_store))
 
     # 신청 상태 업데이트
@@ -524,3 +519,50 @@ async def reject(
 
     await db.commit()
     return {"message": "신청이 반려되었습니다.", "reason": body.reason}
+"""
+auth_router.py 에 추가할 엔드포인트 2개
+auth_router.py 파일 맨 아래에 붙여넣기 하면 됩니다.
+"""
+
+# ── 매장 목록 (회원가입 드롭다운용, 미인증) ──────────────────
+
+@router.get("/stores", summary="활성 매장 목록 (미인증)")
+async def get_stores(
+    db: Annotated[AsyncSession, Depends(get_db)],
+):
+    stores = await db.scalars(
+        select(Store).where(Store.is_active == True).order_by(Store.id)
+    )
+    return [{"id": s.id, "name": s.name} for s in stores.all()]
+
+
+# ── 비밀번호 초기화 (총괄 이상) ──────────────────────────────
+
+class ResetPasswordRequest(BaseModel):
+    staff_id:     int
+    new_password: str
+
+
+@router.post("/admin/reset-password", summary="직원 비밀번호 초기화 [총괄 이상]")
+async def reset_password(
+    body: ResetPasswordRequest,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current: Annotated[Staff, RequireGeneral],
+):
+    target = await db.scalar(select(Staff).where(Staff.id == body.staff_id))
+    if not target:
+        raise HTTPException(404, "직원을 찾을 수 없습니다.")
+
+    role_order = {
+        StaffRole.매니저: 1,
+        StaffRole.시니어: 2,
+        StaffRole.총괄:   3,
+        StaffRole.사장:   4,
+        StaffRole.관리자: 5,
+    }
+    if role_order.get(target.role, 0) >= role_order.get(current.role, 0):
+        raise HTTPException(403, "자신과 같거나 높은 권한의 직원 비밀번호는 초기화할 수 없습니다.")
+
+    target.hashed_password = hash_password(body.new_password)
+    await db.commit()
+    return {"message": f"{target.name} 비밀번호가 초기화되었습니다."}

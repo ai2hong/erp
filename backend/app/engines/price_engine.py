@@ -1,296 +1,198 @@
 """
-engines/price_engine.py — 가격 계산 엔진 v2
+price_engine.py — VapeERP 가격 계산 엔진 v6 (Python)
 
-기준서 v8 기반 묶음 할인 + 연동 할인 + 적립금 계산.
+할인제외 처리 규칙 최종 확정:
+  할인제외는 완전히 분리 계산 후 합산.
+  나머지 액상은 할인제외가 없는 것처럼 세트가/낱개단가 그대로 적용.
 
-핵심 규칙:
-  - 3병 묶음 할인: 할인제외 제외한 전체 액상 3병 이상 시 적용
-    - 묶음 기본가: 50,000 (이벤트만으로 구성 시)
-    - 일반 액상이 묶음에 포함 시: +5,000/병 추가
-    - 이벤트 우선 소진 → 남은 자리를 일반이 채움
-  - 폐이벤트 2병 묶음: 45,000 (3병 묶음 이후 잔여에 적용)
-  - 할인제외 상품: 항상 정가 (묶음 대상 제외)
-  - 기기 연동 할인: 기기 구매 시 device_discount_price 적용
-  - 적립: 이체/현금 결제 시 결제금액의 1% (10원 단위 절사)
+  입이벤트2 + 입할인제외1 = 40,000 + 25,000 = 65,000  ✓
+  입이벤트3 + 입할인제외1 = 50,000 + 25,000 = 75,000  ✓
 """
 
-from typing import Optional, List
 from dataclasses import dataclass, field
+from typing import Optional
+import math
 
-from app.models.product import (
-    Product, ProductCategory,
-    LIQUID_ALL, LIQUID_EXCL, DEVICE_LINKED, DEVICE_FIXED, DEVICE_ALL, HIGH_POD,
-)
+CAT_IN_EV        = "입호흡 이벤트"
+CAT_IN_NE        = "입호흡 일반"
+CAT_IN_EX        = "입호흡 일반(할인제외)"
+CAT_OUT_EV       = "폐호흡 이벤트"
+CAT_OUT_NE       = "폐호흡 일반"
+CAT_OUT_EX       = "폐호흡 일반(할인제외)"
+CAT_IN_DEV       = "입호흡 기기"
+CAT_OUT_DEV      = "폐호흡 기기"
+CAT_IN_DEV_FIXED = "입호흡 기기(단일가)"
+CAT_OUT_DEV_FIXED= "폐호흡 기기(단일가)"
+CAT_IN_COIL_HI   = "입호흡 코일(고가)"
+CAT_OUT_COIL_HI  = "폐호흡 코일(고가)"
 
+LIQUID_ALL    = {CAT_IN_EV, CAT_IN_NE, CAT_IN_EX, CAT_OUT_EV, CAT_OUT_NE, CAT_OUT_EX}
+LIQUID_EXCL   = {CAT_IN_EX, CAT_OUT_EX}
+DEVICE_LINKED = {CAT_IN_DEV, CAT_OUT_DEV}
+DEVICE_FIXED  = {CAT_IN_DEV_FIXED, CAT_OUT_DEV_FIXED}
+DEVICE_ALL    = DEVICE_LINKED | DEVICE_FIXED
+HIGH_POD      = {CAT_IN_COIL_HI, CAT_OUT_COIL_HI}
+EARN_TARGET   = LIQUID_ALL | DEVICE_ALL
 
-# ── 가격 상수 ──────────────────────────────────────────────
-BUNDLE_3_BASE    = 50_000   # 3병 묶음 기본가 (이벤트만)
-BUNDLE_3_NORMAL  = 5_000    # 3병 묶음 내 일반 1병당 추가금
-BUNDLE_2_폐      = 45_000   # 폐이벤트 2병 묶음가
-입이벤트_단가     = 20_000
-폐이벤트_단가     = 25_000
+SET_PRICE = {
+    CAT_IN_EV:  {1: 20000, 2: 40000, 3: 50000},
+    CAT_IN_NE:  {1: 25000, 2: 50000, 3: 65000},
+    CAT_OUT_EV: {1: 25000, 2: 45000},
+    CAT_OUT_NE: {1: 30000, 2: 55000},
+}
+UNIT = {
+    CAT_IN_EV:  {'n': 16500, 'b': 16000},
+    CAT_IN_NE:  {'n': 21500, 'b': 21000},
+    CAT_OUT_EV: {'n': 22500, 'b': 22000},
+    CAT_OUT_NE: {'n': 27500, 'b': 27000},
+}
+MIX_EXTRA = 5000
 
 
 @dataclass
-class LineCalcResult:
-    """개별 라인 계산 결과."""
-    product_id: int
-    quantity: int
-    unit_price: int
-    line_total: int
-    is_device_discount: bool = False
-    is_service: bool = False
+class CartItem:
+    id: int
+    category: str
+    name: str
+    qty: int
+    normal_price: int
+    device_discount_price: Optional[int] = None
 
 
 @dataclass
-class CartCalcResult:
-    """장바구니 전체 계산 결과."""
-    lines: List[LineCalcResult] = field(default_factory=list)
-    subtotal: int = 0
-    has_device: bool = False
+class PriceResult:
+    liquid_price:      int = 0
+    device_price:      int = 0
+    device_discount:   int = 0
+    fixed_device_price:int = 0
+    others_price:      int = 0
+    subtotal:          int = 0
+    qualify_qty:       int = 0
+    discount_max:      int = 0
+    rule_label:        str = ''
+    q_in_ev:  int = 0; q_in_ne:  int = 0
+    q_out_ev: int = 0; q_out_ne: int = 0
+    q_excl:   int = 0; q_normal: int = 0; q_total: int = 0
     has_high_pod: bool = False
-    event_discount_applied: int = 0
+    high_pod_qty: int  = 0
+    dev_qty:      int  = 0
 
 
-def get_unit_price(product: Product, *, with_device_discount: bool = False) -> int:
-    """상품 단가 결정."""
-    if with_device_discount and product.is_device_linked:
-        return product.safe_device_price
-    return product.normal_price
+def _uk(n): return 'b' if n >= 10 else 'n'
+
+def _sdp(item):
+    d = item.device_discount_price
+    return d if (d and 0 < d < item.normal_price) else item.normal_price
+
+def _sp(cat, qty):
+    t = SET_PRICE.get(cat, {})
+    if qty in t: return t[qty]
+    return UNIT.get(cat, {}).get(_uk(qty), 0) * qty
+
+def _sq(items, cat):  return sum(c.qty for c in items if c.category == cat)
+def _sqs(items, cs):  return sum(c.qty for c in items if c.category in cs)
+
+def _cu(q_in_ev, q_in_ne, q_out_ev, q_out_ne, total):
+    r = _uk(total)
+    return (q_in_ev  * UNIT.get(CAT_IN_EV,  {}).get(r, 0)
+          + q_in_ne  * UNIT.get(CAT_IN_NE,  {}).get(r, 0)
+          + q_out_ev * UNIT.get(CAT_OUT_EV, {}).get(r, 0)
+          + q_out_ne * UNIT.get(CAT_OUT_NE, {}).get(r, 0))
+
+def linked_discount_max(q): return math.floor(q / 3) * 2
 
 
-def calc_line_total(product: Product, quantity: int, *, with_device_discount: bool = False) -> int:
-    """라인 소계 = 단가 x 수량."""
-    return get_unit_price(product, with_device_discount=with_device_discount) * quantity
+def calc_price(cart_items: list) -> PriceResult:
+    res = PriceResult()
 
+    liquids    = [c for c in cart_items if c.category in LIQUID_ALL]
+    dev_linked = [c for c in cart_items if c.category in DEVICE_LINKED]
+    dev_fixed  = [c for c in cart_items if c.category in DEVICE_FIXED]
+    others     = [c for c in cart_items if c.category not in LIQUID_ALL and c.category not in DEVICE_ALL]
 
-def calc_cart(products_with_qty: List[tuple]) -> CartCalcResult:
-    """
-    장바구니 전체 계산 — 묶음 할인 적용.
+    excl_items = [c for c in liquids if c.category in LIQUID_EXCL]
 
-    Args:
-        products_with_qty: [(product, quantity), ...] 리스트
+    # ── 할인제외: 정상가×수량, 완전 분리 ────────────────────
+    excl_price = sum(c.normal_price * c.qty for c in excl_items)
 
-    Returns:
-        CartCalcResult
-    """
-    result = CartCalcResult()
-    has_device = False
-    has_high_pod = False
+    q_in_ev  = _sq(cart_items, CAT_IN_EV)
+    q_in_ne  = _sq(cart_items, CAT_IN_NE)
+    q_out_ev = _sq(cart_items, CAT_OUT_EV)
+    q_out_ne = _sq(cart_items, CAT_OUT_NE)
+    q_excl   = sum(c.qty for c in excl_items)
+    q_in     = q_in_ev + q_in_ne
+    q_out    = q_out_ev + q_out_ne
+    q_normal = q_in + q_out
+    q_total  = q_normal + q_excl
 
-    # 분류별 수집
-    event_입_items = []   # (product, qty)
-    event_폐_items = []
-    normal_items = []     # 일반 액상 (할인제외 아닌)
-    excluded_items = []   # 할인제외
-    device_items = []
-    other_items = []      # 코일, 악세사리 등
+    res.q_in_ev=q_in_ev; res.q_in_ne=q_in_ne
+    res.q_out_ev=q_out_ev; res.q_out_ne=q_out_ne
+    res.q_excl=q_excl; res.q_normal=q_normal; res.q_total=q_total
 
-    for product, qty in products_with_qty:
-        if product.category in DEVICE_ALL:
-            has_device = True
-            device_items.append((product, qty))
-        elif product.category in HIGH_POD:
-            has_high_pod = True
-            other_items.append((product, qty))
-        elif product.category in LIQUID_EXCL:
-            excluded_items.append((product, qty))
-        elif product.category == ProductCategory.입호흡_이벤트:
-            event_입_items.append((product, qty))
-        elif product.category == ProductCategory.폐호흡_이벤트:
-            event_폐_items.append((product, qty))
-        elif product.category in (ProductCategory.입호흡_일반, ProductCategory.폐호흡_일반):
-            normal_items.append((product, qty))
-        else:
-            other_items.append((product, qty))
-
-    result.has_device = has_device
-    result.has_high_pod = has_high_pod
-
-    # ── 1. 할인제외 상품: 항상 정가 ──────────────────────────
-    for product, qty in excluded_items:
-        result.lines.append(LineCalcResult(
-            product_id=product.id,
-            quantity=qty,
-            unit_price=product.normal_price,
-            line_total=product.normal_price * qty,
-        ))
-
-    # ── 2. 묶음 할인 계산 ────────────────────────────────────
-    # 이벤트 + 일반 수량 합산 (할인제외 제외)
-    total_입evt = sum(q for _, q in event_입_items)
-    total_폐evt = sum(q for _, q in event_폐_items)
-    total_normal = sum(q for _, q in normal_items)
-    total_event = total_입evt + total_폐evt
-    total_bundleable = total_event + total_normal
-
-    # 이벤트 우선 소진으로 3병 묶음 형성
-    remaining_event_입 = total_입evt
-    remaining_event_폐 = total_폐evt
-    remaining_normal = total_normal
-
-    bundle_total = 0
-    bundles_3 = 0
-
-    while remaining_event_입 + remaining_event_폐 + remaining_normal >= 3:
-        # 이벤트 먼저 소진
-        event_in_bundle = min(remaining_event_입 + remaining_event_폐, 3)
-        use_입 = min(remaining_event_입, 3)
-        use_폐 = min(remaining_event_폐, 3 - use_입)
-        event_used = use_입 + use_폐
-        normal_in_bundle = min(remaining_normal, 3 - event_used)
-
-        if event_used + normal_in_bundle < 3:
-            break
-
-        bundle_price = BUNDLE_3_BASE + (BUNDLE_3_NORMAL * normal_in_bundle)
-        bundle_total += bundle_price
-        bundles_3 += 1
-
-        remaining_event_입 -= use_입
-        remaining_event_폐 -= use_폐
-        remaining_normal -= normal_in_bundle
-
-    # 잔여 폐이벤트 2병 묶음
-    bundles_2폐 = 0
-    while remaining_event_폐 >= 2:
-        bundle_total += BUNDLE_2_폐
-        remaining_event_폐 -= 2
-        bundles_2폐 += 1
-
-    # 잔여 개별 이벤트
-    bundle_total += remaining_event_입 * 입이벤트_단가
-    bundle_total += remaining_event_폐 * 폐이벤트_단가
-
-    # 잔여 일반 (정가)
-    normal_individual_total = 0
-    remaining_normal_items = []
-    used_normal = total_normal - remaining_normal
-    for product, qty in normal_items:
-        if used_normal > 0:
-            used = min(qty, used_normal)
-            used_normal -= used
-            remaining_qty = qty - used
-        else:
-            remaining_qty = qty
-        if remaining_qty > 0:
-            remaining_normal_items.append((product, remaining_qty))
-            normal_individual_total += product.normal_price * remaining_qty
-
-    # 이벤트+묶음일반 라인 생성 (묶음 가격 분배 — 나머지 보정)
-    all_event_items = event_입_items + event_폐_items
-    bundled_normal_qty_total = total_normal - remaining_normal
-    total_bundled = total_event + bundled_normal_qty_total
-
-    if total_bundled > 0:
-        distributed = 0
-        bundle_line_items = []
-
-        for product, qty in all_event_items:
-            if qty > 0:
-                bundle_line_items.append((product, qty))
-
-        bundled_normal_remaining = bundled_normal_qty_total
-        for product, qty in normal_items:
-            bq = min(qty, bundled_normal_remaining)
-            if bq > 0:
-                bundle_line_items.append((product, bq))
-                bundled_normal_remaining -= bq
-
-        for i, (product, qty) in enumerate(bundle_line_items):
-            if i < len(bundle_line_items) - 1:
-                share = int(bundle_total * qty / total_bundled)
+    # ── 일반 액상: 할인제외와 독립, 세트가/낱개단가 그대로 ──
+    normal_price = 0
+    if q_normal > 0:
+        if q_in > 0 and q_out > 0:
+            if q_normal <= 2:
+                normal_price = (SET_PRICE.get(CAT_IN_EV,{}).get(1,0)*q_in_ev
+                              + SET_PRICE.get(CAT_IN_NE,{}).get(1,0)*q_in_ne
+                              + SET_PRICE.get(CAT_OUT_EV,{}).get(1,0)*q_out_ev
+                              + SET_PRICE.get(CAT_OUT_NE,{}).get(1,0)*q_out_ne)
+                res.rule_label = '입+폐 혼합 2병 → 정상가 합산'
             else:
-                share = bundle_total - distributed  # 마지막에 나머지 보정
-            distributed += share
-            result.lines.append(LineCalcResult(
-                product_id=product.id,
-                quantity=qty,
-                unit_price=share // qty if qty > 0 else 0,
-                line_total=share,
-            ))
-
-    # 잔여 일반 라인 (정가)
-    for product, qty in remaining_normal_items:
-        result.lines.append(LineCalcResult(
-            product_id=product.id,
-            quantity=qty,
-            unit_price=product.normal_price,
-            line_total=product.normal_price * qty,
-        ))
-
-    # 정가 기준 원래 합계
-    original_total = (total_입evt * 입이벤트_단가
-                      + total_폐evt * 폐이벤트_단가
-                      + sum(p.normal_price * q for p, q in normal_items))
-    result.event_discount_applied = original_total - (bundle_total + normal_individual_total)
-
-    # ── 3. 기기: 연동할인 적용 ────────────────────────────────
-    for product, qty in device_items:
-        if product.is_device_linked and product.device_discount_price:
-            price = product.safe_device_price
-            is_dd = True
+                normal_price = _cu(q_in_ev,q_in_ne,q_out_ev,q_out_ne,q_normal)
+                res.rule_label = f'입+폐 혼합 {q_normal}병 → 낱개단가'
+        elif q_in > 0:
+            if q_in_ev > 0 and q_in_ne > 0:
+                if q_in <= 3:
+                    base = _sp(CAT_IN_EV, q_in)
+                    normal_price = base + q_in_ne * MIX_EXTRA
+                    res.rule_label = f'입이벤트+일반 혼합 {q_in}병 → 기준가+추가금'
+                else:
+                    normal_price = _cu(q_in_ev,q_in_ne,0,0,q_in)
+                    res.rule_label = f'입이벤트+일반 혼합 {q_in}병 → 낱개단가'
+            else:
+                cat = CAT_IN_EV if q_in_ev > 0 else CAT_IN_NE
+                normal_price = _sp(cat, q_in)
+                res.rule_label = f'{cat} {q_in}병'
         else:
-            price = product.normal_price
-            is_dd = False
-        result.lines.append(LineCalcResult(
-            product_id=product.id,
-            quantity=qty,
-            unit_price=price,
-            line_total=price * qty,
-            is_device_discount=is_dd,
-        ))
+            if q_out_ev > 0 and q_out_ne > 0:
+                if q_out <= 3:
+                    base = _sp(CAT_OUT_EV, q_out)
+                    normal_price = base + q_out_ne * MIX_EXTRA
+                    res.rule_label = f'폐이벤트+일반 혼합 {q_out}병 → 기준가+추가금'
+                else:
+                    normal_price = _cu(0,0,q_out_ev,q_out_ne,q_out)
+                    res.rule_label = f'폐이벤트+일반 혼합 {q_out}병 → 낱개단가'
+            else:
+                cat = CAT_OUT_EV if q_out_ev > 0 else CAT_OUT_NE
+                normal_price = _sp(cat, q_out)
+                res.rule_label = f'{cat} {q_out}병'
 
-    # ── 4. 기타 (코일, 악세사리 등): 정가 ────────────────────
-    for product, qty in other_items:
-        result.lines.append(LineCalcResult(
-            product_id=product.id,
-            quantity=qty,
-            unit_price=product.normal_price,
-            line_total=product.normal_price * qty,
-        ))
+    res.liquid_price = normal_price + excl_price
 
-    result.subtotal = sum(l.line_total for l in result.lines)
-    return result
+    # ── 기기 ────────────────────────────────────────────────
+    qualify_qty  = q_total
+    discount_max = linked_discount_max(qualify_qty)
+    res.qualify_qty = qualify_qty; res.discount_max = discount_max
 
+    if dev_linked:
+        disc_remain = discount_max
+        for d in dev_linked:
+            dq = min(d.qty, disc_remain)
+            nq = d.qty - dq
+            dp = _sdp(d)
+            res.device_price    += dq * dp + nq * d.normal_price
+            res.device_discount += dq * (d.normal_price - dp)
+            disc_remain -= dq
 
-def calc_mileage_earn(total_amount: int, *, eligible: bool = True) -> int:
-    """적립금 계산. 결제금액의 1% (10원 단위 절사)."""
-    if not eligible or total_amount <= 0:
-        return 0
-    raw = int(total_amount * 0.01)
-    return (raw // 10) * 10
+    if dev_fixed:
+        res.fixed_device_price = sum(d.qty * d.normal_price for d in dev_fixed)
+        res.device_price += res.fixed_device_price
 
-
-def is_discount_excluded(product: Product) -> bool:
-    """할인 제외 상품 여부."""
-    return product.category in LIQUID_EXCL
-
-
-def determine_payment_nature(
-    total_amount: int,
-    card_amount: int,
-    mileage_used: int,
-) -> str:
-    """결제 성격 자동 판별."""
-    if total_amount <= 0 and mileage_used > 0:
-        return "마일리지전액"
-    if card_amount <= 0:
-        return "현금이체"
-    if total_amount > 0:
-        card_ratio = card_amount / total_amount * 100
-        if card_ratio <= 20:
-            return "현금이체_카드20이하"
-    return "카드"
-
-
-def determine_earn_eligible(payment_nature: str, has_high_pod: bool) -> bool:
-    """적립 가능 여부."""
-    if has_high_pod:
-        return False
-    return payment_nature in ("현금이체", "현금이체_카드20이하")
-
-
-def determine_service_eligible(payment_nature: str) -> bool:
-    """서비스 자격 여부."""
-    return payment_nature not in ("카드", "마일리지전액")
+    res.dev_qty      = _sqs(cart_items, DEVICE_ALL)
+    res.others_price = sum(c.qty * c.normal_price for c in others)
+    res.subtotal     = res.liquid_price + res.device_price + res.others_price
+    res.has_high_pod = _sqs(cart_items, HIGH_POD) > 0
+    res.high_pod_qty = _sqs(cart_items, HIGH_POD)
+    return res

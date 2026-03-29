@@ -1,0 +1,1 @@
+import{_ as s,c as o,b as t,j as c}from"./index-DcKnJrmU.js";const n={},r={class:"view-stub"};function a(l,e){return c(),o("div",r,[...e[0]||(e[0]=[t("h2",null,"StockView",-1),t("p",null,"준비 중",-1)])])}const i=s(n,[["render",a]]);export{i as default};

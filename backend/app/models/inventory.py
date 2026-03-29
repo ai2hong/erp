@@ -1,11 +1,5 @@
-"""
-models/inventory.py — 매장별 상품 재고 현황
-
-매장 × 상품 조합으로 현재 재고 수량 추적.
-재고 변동은 InventoryMove에 기록, 이 테이블은 현재 수량만 유지.
-"""
-
-from sqlalchemy import Column, Integer, DateTime, ForeignKey, UniqueConstraint, func
+"""재고 모델 — DB 스키마에 맞춰 수정 (inventories 테이블)"""
+from sqlalchemy import Column, Integer, Boolean, DateTime, Text, ForeignKey, UniqueConstraint, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -13,31 +7,45 @@ from app.database import Base
 class Inventory(Base):
     __tablename__ = "inventories"
     __table_args__ = (
-        UniqueConstraint("store_id", "product_id", name="uq_inventory_store_product"),
+        UniqueConstraint("product_id", "store_id", name="uq_inventory_product_store"),
     )
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False)
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False)
+    id           = Column(Integer, primary_key=True, autoincrement=True)
+    product_id   = Column(Integer, ForeignKey("products.id"), nullable=False)
+    store_id     = Column(Integer, nullable=False, default=1)
 
-    quantity = Column(Integer, nullable=False, default=0,
-                      comment="현재 재고 수량. 음수 허용 (긴급 판매 시).")
-    safety_stock = Column(Integer, nullable=True, default=None,
-                          comment="안전 재고 수량. 이 이하일 때 알림.")
+    quantity     = Column(Integer, nullable=False, default=0, comment="실재고")
+    safety_stock = Column(Integer, nullable=False, default=0, comment="안전재고")
 
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at   = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # ── 관계 ────────────────────────────────────────────────
-    store = relationship("Store")
-    product = relationship("Product", back_populates="inventory")
+    product = relationship("Product", back_populates="inventories")
 
     @property
-    def is_low_stock(self) -> bool:
-        """안전 재고 이하 여부."""
-        if self.safety_stock is None:
-            return False
-        return self.quantity <= self.safety_stock
+    def qty_actual(self):
+        return self.quantity
+
+    @property
+    def qty_available(self):
+        return self.quantity
+
+    @property
+    def qty_undelivered(self):
+        return 0
+
+    @property
+    def qty_reserved(self):
+        return 0
+
+    @property
+    def is_shortage(self):
+        ss = self.safety_stock or 0
+        return self.quantity <= ss and ss > 0
+
+    @property
+    def is_out_of_stock(self):
+        return self.quantity == 0
 
     def __repr__(self):
         return f"<Inventory store={self.store_id} product={self.product_id} qty={self.quantity}>"

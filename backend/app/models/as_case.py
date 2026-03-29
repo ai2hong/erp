@@ -1,68 +1,83 @@
-"""
-models/as_case.py — A/S(애프터서비스) 케이스
-
-기기 불량·고장 접수 및 처리 이력.
-"""
-
+"""AS 케이스 + 대여기기 모델"""
 from sqlalchemy import Column, Integer, String, Enum, DateTime, Text, ForeignKey, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 import enum
 
 
-class AsCaseStatus(str, enum.Enum):
-    접수 = "접수"
-    진행중 = "진행중"
-    완료 = "완료"
-    반품 = "반품"       # 제조사 반품
-    취소 = "취소"
+class AsStatus(str, enum.Enum):
+    접수      = "접수"
+    점검중    = "점검중"
+    제조사전달 = "제조사전달"
+    수리완료  = "수리완료"
+    반환완료  = "반환완료"
+    반려      = "반려"
 
 
 class AsCase(Base):
     __tablename__ = "as_cases"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
-    customer_id = Column(Integer, ForeignKey("customers.id"), nullable=False)
-    store_id = Column(Integer, ForeignKey("stores.id"), nullable=False)
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    case_number = Column(String(20), nullable=False, unique=True,
+                         comment="AS 번호. 예: AS-250315-001")
 
-    # ── 기기 정보 ───────────────────────────────────────────
-    product_id = Column(Integer, ForeignKey("products.id"), nullable=False,
-                        comment="A/S 대상 기기")
-    device_ledger_id = Column(Integer, ForeignKey("device_ledgers.id"), nullable=True,
-                              comment="고객 기기 보유 이력 참조")
-    serial_number = Column(String(100), nullable=True, comment="기기 시리얼 번호")
+    customer_id      = Column(Integer, ForeignKey("customers.id"), nullable=False)
+    device_id        = Column(Integer, ForeignKey("device_ledgers.id"), nullable=True)
+    staff_id         = Column(Integer, ForeignKey("staff.id"), nullable=False)
+    loaner_device_id = Column(Integer, ForeignKey("loaner_devices.id"), nullable=True)
 
-    # ── 증상·처리 ───────────────────────────────────────────
-    symptom = Column(Text, nullable=False, comment="고장·불량 증상")
-    diagnosis = Column(Text, nullable=True, comment="진단 내용")
-    resolution = Column(Text, nullable=True, comment="처리 결과")
+    symptom    = Column(Text, nullable=False)
+    status     = Column(Enum(AsStatus), nullable=False, default=AsStatus.접수)
+    diagnosis  = Column(Text, nullable=True)
+    resolution = Column(Text, nullable=True)
 
-    # ── 대여 기기 ───────────────────────────────────────────
-    loaner_product_id = Column(Integer, ForeignKey("products.id"), nullable=True,
-                               comment="대여 기기. 없으면 NULL.")
-    loaner_out_date = Column(DateTime(timezone=True), nullable=True,
-                             comment="대여 출고일")
-    loaner_return_date = Column(DateTime(timezone=True), nullable=True,
-                                comment="대여 반납일")
+    received_at  = Column(DateTime(timezone=True), nullable=True)
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+    returned_at  = Column(DateTime(timezone=True), nullable=True)
+    created_at   = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at   = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # ── 상태 ────────────────────────────────────────────────
-    status = Column(Enum(AsCaseStatus), nullable=False, default=AsCaseStatus.접수)
-    received_by = Column(Integer, ForeignKey("staff.id"), nullable=False,
-                         comment="접수 직원")
-    completed_by = Column(Integer, ForeignKey("staff.id"), nullable=True,
-                          comment="완료 처리 직원")
+    customer      = relationship("Customer", back_populates="as_cases")
+    device        = relationship("DeviceLedger", foreign_keys=[device_id])
+    staff         = relationship("Staff", foreign_keys=[staff_id])
+    loaner_device = relationship("LoanerDevice", foreign_keys=[loaner_device_id])
+
+    def __repr__(self):
+        return f"<AsCase {self.case_number} status={self.status}>"
+
+
+class LoanerStatus(str, enum.Enum):
+    대여가능 = "대여가능"
+    대여중   = "대여중"
+    회수완료 = "회수완료"
+    미회수   = "미회수"
+    수리중   = "수리중"
+    폐기     = "폐기"
+
+
+class LoanerDevice(Base):
+    __tablename__ = "loaner_devices"
+
+    id          = Column(Integer, primary_key=True, autoincrement=True)
+    device_name = Column(String(200), nullable=False)
+    device_memo = Column(Text, nullable=True)
+    status      = Column(Enum(LoanerStatus), nullable=False, default=LoanerStatus.대여가능)
+
+    current_customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
+    current_as_case_id  = Column(Integer, ForeignKey("as_cases.id"), nullable=True)
+    loaned_at           = Column(DateTime(timezone=True), nullable=True,
+                                 comment="대여 시작일. 회수예정일 없음, 수동 관리")
+    loaned_by           = Column(Integer, ForeignKey("staff.id"), nullable=True)
+    returned_at         = Column(DateTime(timezone=True), nullable=True)
+    returned_to         = Column(Integer, ForeignKey("staff.id"), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
 
-    # ── 관계 ────────────────────────────────────────────────
-    customer = relationship("Customer", back_populates="as_cases")
-    store = relationship("Store")
-    product = relationship("Product", foreign_keys=[product_id])
-    device_ledger = relationship("DeviceLedger")
-    loaner_product = relationship("Product", foreign_keys=[loaner_product_id])
-    receiver = relationship("Staff", foreign_keys=[received_by])
-    completer = relationship("Staff", foreign_keys=[completed_by])
+    current_customer  = relationship("Customer", foreign_keys=[current_customer_id])
+    current_as_case   = relationship("AsCase", foreign_keys=[current_as_case_id])
+    loaned_by_staff   = relationship("Staff", foreign_keys=[loaned_by])
+    returned_to_staff = relationship("Staff", foreign_keys=[returned_to])
 
     def __repr__(self):
-        return f"<AsCase customer={self.customer_id} product={self.product_id} [{self.status}]>"
+        return f"<LoanerDevice id={self.id} name={self.device_name} status={self.status}>"
