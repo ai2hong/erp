@@ -102,7 +102,7 @@ class Transaction(Base):
     payments        = relationship("Payment", back_populates="transaction")
     mileage_ledgers = relationship("MileageLedger", back_populates="transaction")
     service_records = relationship("ServiceRecord", back_populates="transaction")
-    unpaid_services = relationship("UnpaidService", back_populates="transaction")
+    unpaid_services = relationship("UnpaidService", back_populates="transaction", foreign_keys="[UnpaidService.transaction_id]")
     inventory_moves = relationship("InventoryMove", back_populates="transaction")
     original_tx     = relationship("Transaction", remote_side=[id], foreign_keys=[original_tx_id])
 

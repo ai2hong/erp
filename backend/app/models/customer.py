@@ -1,9 +1,5 @@
-"""
-고객 장부 모델 v2
-- VIP/단골 등급 완전 제거 (is_vip, vip_note 삭제)
-- 고객은 단순 고객으로만 관리
-"""
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, Text, func
+"""고객 모델"""
+from sqlalchemy import Column, Integer, SmallInteger, String, Boolean, DateTime, Text, func
 from sqlalchemy.orm import relationship
 from app.database import Base
 
@@ -14,9 +10,13 @@ class Customer(Base):
     id              = Column(Integer, primary_key=True, autoincrement=True)
     name            = Column(String(100), nullable=False)
     phone           = Column(String(20), nullable=False, unique=True)
-    mileage_balance = Column(Integer, nullable=False, default=0,
-                             comment="적립금 잔액. 마이너스 허용. 10원 단위.")
-    staff_memo      = Column(Text, nullable=True, comment="직원 메모 (내부용)")
+    phone2          = Column(String(20), nullable=True)
+    default_phone   = Column(SmallInteger, nullable=False, default=1, comment="기본 전화번호: 1=phone, 2=phone2")
+    mileage_balance = Column(Integer, nullable=False, default=0)
+    staff_memo      = Column(Text, nullable=True)
+    address         = Column(Text, nullable=True, comment="기본 주소")
+    address2        = Column(Text, nullable=True, comment="추가 주소")
+    default_address = Column(SmallInteger, nullable=True, comment="기본 배송지: 1=address, 2=address2")
     last_visit_at   = Column(DateTime(timezone=True), nullable=True)
     total_purchase  = Column(Integer, nullable=False, default=0)
     visit_count     = Column(Integer, nullable=False, default=0)
@@ -35,7 +35,14 @@ class Customer(Base):
     as_cases        = relationship("AsCase", back_populates="customer")
 
     @property
-    def is_negative_mileage(self): return self.mileage_balance < 0
+    def primary_phone(self):
+        return self.phone2 if self.default_phone == 2 and self.phone2 else self.phone
+
+    @property
+    def primary_address(self):
+        if self.default_address == 2 and self.address2:
+            return self.address2
+        return self.address
 
     def __repr__(self):
         return f"<Customer id={self.id} name={self.name} phone={self.phone}>"

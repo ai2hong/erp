@@ -23,7 +23,7 @@
       <div class="sb-sec">고객</div>
       <router-link to="/customer" custom v-slot="{ navigate, isActive }">
         <div class="ni" :class="{ on: isActive }" @click="navigate">
-          <span class="ni-ic">◉</span>고객 / 적립금
+          <span class="ni-ic">◉</span>회원목록
         </div>
       </router-link>
       <router-link to="/unpaid" custom v-slot="{ navigate, isActive }">
@@ -124,7 +124,7 @@ const today = computed(() => {
 const PAGE_TITLES = {
   '/dashboard': '대시보드',
   '/sale':      '판매 등록',
-  '/customer':  '고객 / 적립금',
+  '/customer':  '회원목록',
   '/unpaid':    '미지급 서비스',
   '/reserve':   '예약 주문',
   '/stock':     '재고 현황',

@@ -166,7 +166,7 @@ async def create_transaction(
                 mileage_type   = MileageType.사용,
                 amount         = -body.mileage_used,
                 balance_after  = cust.mileage_balance,
-                processed_by   = current_staff.id,
+                staff_id       = current_staff.id,
             ))
 
     if body.earn_eligible and body.customer_id and body.mileage_earned > 0:
@@ -182,7 +182,7 @@ async def create_transaction(
                 mileage_type   = MileageType.적립,
                 amount         = body.mileage_earned,
                 balance_after  = cust.mileage_balance,
-                processed_by   = current_staff.id,
+                staff_id       = current_staff.id,
             ))
 
     await db.commit()
@@ -225,8 +225,48 @@ async def get_transaction(
     db: AsyncSession = Depends(get_db),
     current_staff=Depends(get_current_staff),
 ):
-    result = await db.execute(select(Transaction).where(Transaction.id == tx_id))
+    from sqlalchemy.orm import selectinload, joinedload
+    result = await db.execute(
+        select(Transaction)
+        .where(Transaction.id == tx_id)
+        .options(
+            selectinload(Transaction.lines).joinedload(TransactionLine.product),
+            selectinload(Transaction.payments),
+        )
+    )
     tx = result.scalar_one_or_none()
     if not tx:
         raise HTTPException(404, "거래를 찾을 수 없습니다")
-    return tx
+    return {
+        "id":             tx.id,
+        "tx_number":      tx.tx_number,
+        "channel":        tx.channel,
+        "status":         tx.status,
+        "tx_color":       tx.tx_color,
+        "payment_nature": tx.payment_nature,
+        "subtotal":       tx.subtotal,
+        "discount_amount": tx.discount_amount,
+        "discount_reason": tx.discount_reason,
+        "mileage_used":   tx.mileage_used,
+        "mileage_earned": tx.mileage_earned,
+        "total_amount":   tx.total_amount,
+        "staff_memo":     tx.staff_memo,
+        "created_at":     tx.created_at,
+        "lines": [
+            {
+                "product_id":   l.product_id,
+                "product_name": l.product.name if l.product else f"상품#{l.product_id}",
+                "category":     l.product.category if l.product else None,
+                "quantity":     l.quantity,
+                "unit_price":   l.unit_price,
+                "line_total":   l.line_total,
+                "is_service":   l.is_service,
+                "service_reason": l.service_reason,
+            }
+            for l in tx.lines
+        ],
+        "payments": [
+            {"method": p.method, "amount": p.amount}
+            for p in tx.payments
+        ],
+    }
