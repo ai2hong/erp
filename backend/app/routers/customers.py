@@ -299,22 +299,24 @@ async def get_as_cases(
     current_staff=Depends(get_current_staff),
 ):
     result = await db.execute(
-        select(AsCase)
+        select(AsCase, Product)
+        .outerjoin(Product, AsCase.product_id == Product.id)
         .where(AsCase.customer_id == customer_id)
         .order_by(AsCase.created_at.desc())
     )
-    rows = result.scalars().all()
+    rows = result.all()
     return [
         {
-            "id":          r.id,
-            "product_id":  r.product_id,
-            "symptom":     r.symptom,
-            "diagnosis":   r.diagnosis,
-            "resolution":  r.resolution,
-            "status":      r.status,
-            "created_at":  r.created_at,
+            "id":           r.id,
+            "product_id":   r.product_id,
+            "product_name": p.name if p else None,
+            "symptom":      r.symptom,
+            "diagnosis":    r.diagnosis,
+            "resolution":   r.resolution,
+            "status":       r.status,
+            "created_at":   r.created_at,
         }
-        for r in rows
+        for r, p in rows
     ]
 
 
@@ -356,21 +358,23 @@ async def get_reservations(
     current_staff=Depends(get_current_staff),
 ):
     result = await db.execute(
-        select(Reservation, Staff)
+        select(Reservation, Staff, Product)
         .outerjoin(Staff, Reservation.reserved_by == Staff.id)
+        .outerjoin(Product, Reservation.product_id == Product.id)
         .where(Reservation.customer_id == customer_id)
         .order_by(Reservation.created_at.desc())
     )
     rows = result.all()
     return [
         {
-            "id":         r.id,
-            "product_id": r.product_id,
-            "quantity":   r.quantity,
-            "status":     r.status,
-            "note":       r.note,
-            "created_at": r.created_at,
-            "staff_name": s.name if s else None,
+            "id":           r.id,
+            "product_id":   r.product_id,
+            "product_name": p.name if p else None,
+            "quantity":     r.quantity,
+            "status":       r.status,
+            "note":         r.note,
+            "created_at":   r.created_at,
+            "staff_name":   s.name if s else None,
         }
-        for r, s in rows
+        for r, s, p in rows
     ]

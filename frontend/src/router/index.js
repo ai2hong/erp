@@ -14,7 +14,8 @@ const routes = [
     meta: { requiresAuth: true },
     children: [
       { path: '',          redirect: '/dashboard' },
-      { path: 'dashboard', name: 'Dashboard',  component: () => import('@/views/DashboardView.vue') },
+      { path: 'dashboard',     name: 'Dashboard',     component: () => import('@/views/DashboardView.vue') },
+      { path: 'tx-history',    name: 'TxHistory',     component: () => import('@/views/TxHistoryView.vue') },
       { path: 'sale',      name: 'Sale',        component: () => import('@/views/SaleView.vue') },
       { path: 'customer',  name: 'Customer',    component: () => import('@/views/CustomerView.vue') },
       { path: 'unpaid',    name: 'Unpaid',      component: () => import('@/views/UnpaidView.vue') },

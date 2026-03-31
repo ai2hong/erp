@@ -18,6 +18,7 @@ import app.models.mileage_ledger
 import app.models.device_ledger
 import app.models.reservation
 import app.models.as_case
+import app.models.as_case_log
 import app.models.exchange_case
 import app.models.unpaid_service
 import app.models.service_record

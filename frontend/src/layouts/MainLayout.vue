@@ -14,9 +14,20 @@
           <span class="ni-ic">◈</span>대시보드
         </div>
       </router-link>
+      <router-link to="/tx-history" custom v-slot="{ navigate, isActive }">
+        <div class="ni" :class="{ on: isActive }" @click="navigate">
+          <span class="ni-ic">◷</span>판매 내역
+        </div>
+      </router-link>
       <router-link to="/sale" custom v-slot="{ navigate, isActive }">
         <div class="ni" :class="{ on: isActive }" @click="navigate">
           <span class="ni-ic">✦</span>판매 등록
+        </div>
+      </router-link>
+      <router-link to="/transfers" custom v-slot="{ navigate, isActive }">
+        <div class="ni" :class="{ on: isActive }" @click="navigate">
+          <span class="ni-ic">⊡</span>택배 / 배달
+          <span v-if="badges.transfers" class="nb">{{ badges.transfers }}</span>
         </div>
       </router-link>
 
@@ -71,13 +82,6 @@
         </div>
       </router-link>
 
-      <router-link to="/transfers" custom v-slot="{ navigate, isActive }">
-        <div class="ni" :class="{ on: isActive }" @click="navigate">
-          <span class="ni-ic">⊡</span>택배 / 배달
-          <span v-if="badges.transfers" class="nb">{{ badges.transfers }}</span>
-        </div>
-      </router-link>
-
       <!-- 하단 사용자 정보 -->
       <div class="sb-bot">
         <div class="av-row">
@@ -127,8 +131,9 @@ const today = computed(() => {
 })
 
 const PAGE_TITLES = {
-  '/dashboard': '대시보드',
-  '/sale':      '판매 등록',
+  '/dashboard':  '대시보드',
+  '/tx-history': '판매 내역',
+  '/sale':       '판매 등록',
   '/customer':  '회원목록',
   '/unpaid':    '미수령',
   '/as-management': 'A/S 관리',

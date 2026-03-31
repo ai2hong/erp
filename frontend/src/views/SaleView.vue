@@ -6,34 +6,149 @@
 
       <!-- 고객 검색 바 -->
       <div class="cust-bar">
+        <!-- 검색 행 -->
         <div class="cust-row">
           <span class="cust-lbl">고객</span>
-          <input
-            class="cust-inp"
-            v-model="custQ"
-            placeholder="전화번호 또는 이름"
-            @keydown.enter="searchCustomer"
-          />
-          <button class="btn sm" @click="searchCustomer">조회</button>
-          <button class="btn sm">신규</button>
-        </div>
-        <div class="cust-info" :class="{ show: customer }">
-          <div class="cust-av">{{ customer?.name?.[0] || '?' }}</div>
-          <div style="flex:1;min-width:0">
-            <div style="display:flex;align-items:center;gap:6px">
-              <span style="font-size:13px;font-weight:700">{{ customer?.name }}</span>
-              <span style="font-size:10px;color:var(--tx2);font-family:var(--mono)">{{ customer?.phone }}</span>
+          <div class="cust-search-wrap">
+            <input
+              class="cust-inp"
+              v-model="custQ"
+              placeholder="전화번호 또는 이름 검색"
+              @keydown.enter="searchCustomer"
+              @input="onCustInput"
+              @focus="onCustFocus"
+              @blur="onCustBlur"
+            />
+            <!-- 검색 결과 드롭다운 -->
+            <div class="cust-drop" v-if="showCustDrop && custResults.length">
+              <div
+                v-for="c in custResults" :key="c.id"
+                class="cust-opt"
+                @mousedown.prevent="selectCustomer(c)"
+              >
+                <div class="co-av">{{ c.name?.[0] }}</div>
+                <div class="co-main">
+                  <div class="co-name">{{ c.name }}
+                    <span class="co-phone">{{ c.phone }}</span>
+                  </div>
+                  <div class="co-meta">
+                    방문 {{ c.visit_count || 0 }}회
+                    · 누적 {{ (c.total_purchase || 0).toLocaleString() }}원
+                  </div>
+                </div>
+                <div class="co-pts-wrap">
+                  <div class="co-pts-lbl">적립금</div>
+                  <div class="co-pts">{{ (c.mileage_balance||0).toLocaleString() }}원</div>
+                </div>
+              </div>
             </div>
-            <div style="font-size:10px;color:var(--tx2);margin-top:1px">{{ customer?.memo || '메모 없음' }}</div>
-          </div>
-          <div style="text-align:right;flex-shrink:0">
-            <div style="font-size:9px;color:var(--tx3);font-family:var(--mono)">적립금</div>
-            <div style="font-family:var(--mono);font-size:13px;font-weight:600;color:var(--ac2)">
-              {{ (customer?.mileage_balance || 0).toLocaleString() }}원
+            <div class="cust-drop" v-else-if="showCustDrop && searchedOnce && !custResults.length">
+              <div class="cust-opt-empty">검색 결과 없음</div>
             </div>
           </div>
-          <span class="cust-clear" @click="clearCustomer">×</span>
+          <button class="pill-btn ac2" @mousedown.prevent="searchCustomer">조회</button>
+          <button class="pill-btn gr"  @mousedown.prevent="showNewCustModal = true">+ 신규</button>
+          <button class="pill-btn gy"  @mousedown.prevent="showGuestConfirm = true">비회원</button>
         </div>
+
+        <!-- 선택된 고객 정보 패널 -->
+        <div class="cust-panel" v-if="customer">
+          <!-- 상단: 기본 정보 + 통계 -->
+          <div class="cp-top">
+            <div class="cp-left">
+              <div class="cp-av">{{ customer.name?.[0] }}</div>
+              <div>
+                <div class="cp-name">{{ customer.name }}
+                  <span class="cp-memo-badge" v-if="customer.staff_memo">{{ customer.staff_memo }}</span>
+                </div>
+                <div class="cp-phone">{{ customer.phone }}
+                  <span v-if="customer.phone2" style="color:var(--tx3)"> · {{ customer.phone2 }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="cp-stats">
+              <div class="cp-stat">
+                <div class="cp-stat-v">{{ customer.visit_count || 0 }}</div>
+                <div class="cp-stat-l">방문</div>
+              </div>
+              <div class="cp-stat">
+                <div class="cp-stat-v">{{ (customer.total_purchase || 0).toLocaleString() }}</div>
+                <div class="cp-stat-l">누적구매(원)</div>
+              </div>
+              <div class="cp-stat ac">
+                <div class="cp-stat-v cp-miles">{{ (customer.mileage_balance || 0).toLocaleString() }}</div>
+                <div class="cp-stat-l">적립금</div>
+              </div>
+            </div>
+            <span class="cust-clear" @click="clearCustomer">×</span>
+          </div>
+          <!-- 상태 배지 행 -->
+          <div class="cp-badges" v-if="!custTxLoading">
+            <button
+              class="cp-badge"
+              :class="{ red: asOpen.length > 0 }"
+              @click="openExtraModal('as')"
+            >
+              A/S {{ custAsItems.length }}건
+              <span v-if="asOpen.length" class="cp-badge-open">미완료 {{ asOpen.length }}</span>
+            </button>
+            <button
+              class="cp-badge"
+              :class="{ red: unpaidOpen.length > 0 }"
+              @click="openExtraModal('unpaid')"
+            >
+              미수령 {{ custUnpaidItems.length }}건
+              <span v-if="unpaidOpen.length" class="cp-badge-open">{{ unpaidOpen.length }}</span>
+            </button>
+            <button
+              class="cp-badge"
+              :class="{ red: reserveOpen.length > 0 }"
+              @click="openExtraModal('reserve')"
+            >
+              예약 {{ custReserveItems.length }}건
+              <span v-if="reserveOpen.length" class="cp-badge-open">진행중 {{ reserveOpen.length }}</span>
+            </button>
+          </div>
+          <!-- 하단: 최근 거래 3건 -->
+          <div class="cp-txs" v-if="custTxList.length">
+            <div class="cp-tx-hd">
+              최근 거래
+              <button class="cp-more-btn" @click="showCustTxModal = true">더 보기 →</button>
+            </div>
+            <div v-for="tx in custTxList.slice(0,3)" :key="tx.id" class="cp-tx-row">
+              <span class="cp-tx-date mono">{{ fmtTxDate(tx.created_at) }}</span>
+              <span class="cp-tx-sum">{{ tx.summary || '—' }}</span>
+              <span class="cp-tx-amt mono">{{ tx.total_amount.toLocaleString() }}원</span>
+              <span class="tag" :class="{
+                'tag-gr': tx.tx_color==='정상',
+                'tag-ye': tx.tx_color==='서비스'||tx.tx_color==='단골추가',
+                'tag-re': tx.tx_color==='할인',
+                'tag-pu': tx.tx_color==='교환'||tx.tx_color==='마일리지전액',
+              }">{{ tx.tx_color }}</span>
+            </div>
+          </div>
+          <div class="cp-txs cp-txs-empty" v-else-if="!custTxLoading">
+            <span style="color:var(--tx3);font-size:11px">거래 내역 없음</span>
+            <button class="cp-more-btn" style="margin-left:auto" @click="showCustTxModal = true">더 보기 →</button>
+          </div>
+          <div class="cp-txs cp-txs-empty" v-else>
+            <span style="color:var(--tx3);font-size:11px">로딩 중…</span>
+          </div>
+        </div>
+        <div class="cust-panel guest" v-else-if="isGuest">
+          <div class="cp-top">
+            <div class="cp-left">
+              <div class="cp-av" style="background:var(--tx3)">?</div>
+              <div>
+                <div class="cp-name">비회원 거래</div>
+                <div class="cp-phone">적립금 · 마일리지 사용 불가</div>
+              </div>
+            </div>
+            <span class="cust-clear" @click="clearCustomer">×</span>
+          </div>
+        </div>
+        <!-- 고객 미선택 시 자리 유지용 placeholder -->
+        <div class="cust-placeholder" v-else></div>
       </div>
 
       <!-- 상품 선택 영역 -->
@@ -243,10 +358,10 @@
           <input
             class="pts-inp" type="number" v-model.number="milesUsed"
             placeholder="0" step="10"
-            :disabled="!customer || cart.channel !== '매장'"
+            :disabled="!customer || isGuest || cart.channel !== '매장'"
           />
           <span style="font-size:10px;color:var(--tx2)">원</span>
-          <button class="btn sm" @click="useAllMiles" :disabled="!customer">전액</button>
+          <button class="btn sm" @click="useAllMiles" :disabled="!customer || isGuest">전액</button>
         </div>
 
         <!-- 판정 -->
@@ -315,6 +430,142 @@
     </div>
   </div>
 
+  <!-- ── 고객 거래 내역 모달 ── -->
+  <div class="mo" :class="{ open: showCustTxModal }" @click.self="showCustTxModal = false">
+    <div class="mo-box" style="min-width:560px;max-width:680px">
+      <div class="mo-ttl">{{ customer?.name }} 거래 내역</div>
+      <div class="mo-sub">전체 {{ custTxList.length }}건 · 누적 {{ (customer?.total_purchase||0).toLocaleString() }}원</div>
+      <div class="ctx-list">
+        <div v-if="!custTxList.length" class="empty" style="padding:28px">거래 내역이 없습니다</div>
+        <div v-for="tx in custTxList" :key="tx.id" class="ctx-row">
+          <span class="ctx-date mono">{{ fmtTxDate(tx.created_at) }}</span>
+          <span class="tag" :class="{
+            'tag-gr': tx.tx_color==='정상',
+            'tag-ye': tx.tx_color==='서비스'||tx.tx_color==='단골추가',
+            'tag-re': tx.tx_color==='할인',
+            'tag-pu': tx.tx_color==='교환'||tx.tx_color==='마일리지전액',
+          }">{{ tx.tx_color }}</span>
+          <span class="ctx-ch">{{ tx.channel }}</span>
+          <span class="ctx-sum">{{ tx.summary || '—' }}</span>
+          <span class="ctx-amt mono">{{ tx.total_amount.toLocaleString() }}원</span>
+          <span class="ctx-staff">{{ tx.staff_name || '—' }}</span>
+        </div>
+      </div>
+      <div class="mo-acts">
+        <button class="mo-btn pr" @click="showCustTxModal = false">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── A/S·미수령·예약 모달 ── -->
+  <div class="mo" :class="{ open: showExtraModal }" @click.self="showExtraModal = false">
+    <div class="mo-box" style="min-width:520px;max-width:640px">
+      <div class="mo-ttl">
+        {{ extraModalType === 'as' ? 'A/S 내역' : extraModalType === 'unpaid' ? '미수령' : '예약 주문' }}
+        — {{ customer?.name }}
+      </div>
+      <div class="ctx-list">
+        <!-- A/S -->
+        <template v-if="extraModalType === 'as'">
+          <div v-if="!custAsItems.length" class="empty" style="padding:24px">A/S 내역 없음</div>
+          <div v-for="r in custAsItems" :key="r.id" class="ctx-row">
+            <span class="ctx-date mono">{{ fmtTxDate(r.created_at) }}</span>
+            <span class="tag" :class="{
+              'tag-ye': r.status==='접수',
+              'tag-ac': r.status==='처리중',
+              'tag-gr': r.status==='AS완료',
+            }">{{ r.status }}</span>
+            <span class="ctx-sum">{{ r.product_name || '—' }} · {{ (r.symptom||'').replace(/\[대여기기:[^\]]*\]\n?/,'').slice(0,40) }}</span>
+          </div>
+        </template>
+        <!-- 미수령 -->
+        <template v-else-if="extraModalType === 'unpaid'">
+          <div v-if="!custUnpaidItems.length" class="empty" style="padding:24px">미수령 없음</div>
+          <div v-for="r in custUnpaidItems" :key="r.id" class="ctx-row">
+            <span class="ctx-date mono">{{ fmtTxDate(r.created_at) }}</span>
+            <span class="tag" :class="r.is_fulfilled ? 'tag-gr' : 'tag-re'">
+              {{ r.is_fulfilled ? '수령완료' : '미수령' }}
+            </span>
+            <span class="ctx-sum">{{ r.service_type }}</span>
+            <span class="ctx-amt mono">{{ r.quantity }}개</span>
+            <span class="ctx-staff">{{ r.staff_name || '—' }}</span>
+          </div>
+        </template>
+        <!-- 예약 -->
+        <template v-else>
+          <div v-if="!custReserveItems.length" class="empty" style="padding:24px">예약 주문 없음</div>
+          <div v-for="r in custReserveItems" :key="r.id" class="ctx-row">
+            <span class="ctx-date mono">{{ fmtTxDate(r.created_at) }}</span>
+            <span class="tag" :class="{
+              'tag-ye': r.status==='예약접수',
+              'tag-ac': r.status==='입고대기',
+              'tag-gr': r.status==='완료',
+              'tag-re': r.status==='취소',
+            }">{{ r.status }}</span>
+            <span class="ctx-sum">{{ r.product_name || r.note || '—' }}</span>
+            <span class="ctx-amt mono">{{ r.quantity }}개</span>
+            <span class="ctx-staff">{{ r.staff_name || '—' }}</span>
+          </div>
+        </template>
+      </div>
+      <div class="mo-acts">
+        <button class="mo-btn pr" @click="showExtraModal = false">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 비회원 안내 모달 ── -->
+  <div class="mo" :class="{ open: showGuestConfirm }" @click.self="showGuestConfirm = false">
+    <div class="mo-box" style="max-width:400px">
+      <div style="text-align:center;font-size:28px;margin-bottom:10px">⚠️</div>
+      <div class="mo-ttl" style="text-align:center">비회원으로 진행하시겠습니까?</div>
+      <div class="guest-warn-body">
+        <p>비회원 거래는 아래 서비스를 <strong>이용하실 수 없습니다.</strong></p>
+        <ul class="guest-warn-list">
+          <li><span class="gw-ic">↩</span> <strong>교환</strong> — 구매 내역 확인 불가</li>
+          <li><span class="gw-ic">💰</span> <strong>환불</strong> — 거래 이력 미등록</li>
+          <li><span class="gw-ic">🔧</span> <strong>A/S 접수</strong> — 고객 연동 불가</li>
+          <li><span class="gw-ic">🎁</span> <strong>적립금</strong> — 마일리지 적립·사용 불가</li>
+        </ul>
+        <p class="guest-warn-tip">회원 등록은 <strong>+ 신규</strong> 버튼으로 빠르게 진행할 수 있습니다.</p>
+      </div>
+      <div class="mo-acts">
+        <button class="mo-btn" @click="showGuestConfirm = false">취소</button>
+        <button class="mo-btn" style="background:#6b7280;color:#fff;border-color:#6b7280"
+          @click="confirmGuest">비회원으로 진행</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 신규 고객 등록 모달 ── -->
+  <div class="mo" :class="{ open: showNewCustModal }" @click.self="showNewCustModal = false">
+    <div class="mo-box" style="min-width:320px;max-width:380px">
+      <div class="mo-ttl">신규 고객 등록</div>
+      <div class="mo-sub">기본 정보를 입력하고 등록하세요.</div>
+      <div style="display:flex;flex-direction:column;gap:10px;margin-bottom:16px">
+        <div class="nf-row">
+          <label class="nf-lbl">이름 <span class="nf-req">*</span></label>
+          <input class="nf-inp" v-model="newCust.name" placeholder="고객 이름" />
+        </div>
+        <div class="nf-row">
+          <label class="nf-lbl">전화번호 <span class="nf-req">*</span></label>
+          <input class="nf-inp" v-model="newCust.phone" placeholder="010-0000-0000" />
+        </div>
+        <div class="nf-row">
+          <label class="nf-lbl">메모</label>
+          <input class="nf-inp" v-model="newCust.staff_memo" placeholder="선택 사항" />
+        </div>
+      </div>
+      <div v-if="newCustErr" style="font-size:11px;color:var(--re);margin-bottom:8px">{{ newCustErr }}</div>
+      <div class="mo-acts">
+        <button class="mo-btn" @click="showNewCustModal = false">취소</button>
+        <button class="mo-btn pr" @click="createCustomer" :disabled="creatingCust">
+          {{ creatingCust ? '등록 중...' : '등록' }}
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ── 서비스 확정 모달 ── -->
   <div class="mo" :class="{ open: showSvcModal }" @click.self="showSvcModal = false">
     <div class="mo-box">
@@ -344,7 +595,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted } from 'vue'
+import { ref, computed, watch, watchEffect, onMounted } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { useCartStore } from '@/stores/cart'
 import { calcPrice } from '@/engines/priceEngine'
@@ -361,15 +612,16 @@ const activeTab = ref('all')
 const prodSearch = ref('')
 
 const TABS = [
-  { key: 'all',                   label: '전체'    },
-  { key: '입호흡 이벤트',         label: '입이벤트' },
-  { key: '입호흡 일반',           label: '입일반'   },
-  { key: '입호흡 일반(할인제외)', label: '입제외'   },
-  { key: '폐호흡 이벤트',         label: '폐이벤트' },
-  { key: '폐호흡 일반',           label: '폐일반'   },
-  { key: 'dev',                   label: '기기'    },
-  { key: 'coil',                  label: '코일'    },
-  { key: '악세사리',              label: '악세사리' },
+  { key: 'all',                    label: '전체'    },
+  { key: '입호흡 이벤트',          label: '입이벤트' },
+  { key: '입호흡 일반',            label: '입일반'   },
+  { key: '입호흡 일반(할인제외)',  label: '입제외'   },
+  { key: '폐호흡 이벤트',          label: '폐이벤트' },
+  { key: '폐호흡 일반',            label: '폐일반'   },
+  { key: '폐호흡 일반(할인제외)',  label: '폐제외'   },
+  { key: 'dev',                    label: '기기'    },
+  { key: 'coil',                   label: '코일'    },
+  { key: '악세사리',               label: '악세사리' },
 ]
 const DEV_CATS  = ['입호흡 기기','폐호흡 기기','입호흡 기기(단일가)','폐호흡 기기(단일가)']
 const COIL_CATS = ['입호흡 코일','입호흡 코일(고가)','폐호흡 코일','폐호흡 코일(고가)']
@@ -404,22 +656,155 @@ const stockColor = (stock) => {
 }
 
 // ── 고객 ─────────────────────────────────────
-const custQ    = ref('')
-const customer = ref(null)
+const custQ        = ref('')
+const customer     = ref(null)
+const isGuest      = ref(false)
+const custResults  = ref([])
+const showCustDrop = ref(false)
+const searchedOnce = ref(false)
 
+let _searchTimer = null
 async function searchCustomer() {
-  if (!custQ.value.trim()) return
+  const q = custQ.value.trim()
+  if (!q) return
   try {
-    const res = await api.get('/customers/search', { params: { q: custQ.value.trim() } })
-    customer.value = res.data?.length ? res.data[0] : null
-    if (!customer.value) alert('고객을 찾을 수 없습니다')
+    const res = await api.get('/customers/search', { params: { q } })
+    custResults.value = res.data || []
+    searchedOnce.value = true
+    showCustDrop.value = true
   } catch (e) { console.error(e) }
+}
+
+function onCustInput() {
+  searchedOnce.value = false
+  clearTimeout(_searchTimer)
+  const q = custQ.value.trim()
+  if (!q) {
+    custResults.value = []
+    showCustDrop.value = false
+    return
+  }
+  _searchTimer = setTimeout(searchCustomer, 320)
+}
+
+function onCustFocus() {
+  if (custResults.value.length) showCustDrop.value = true
+}
+
+function onCustBlur() {
+  setTimeout(() => { showCustDrop.value = false }, 150)
+}
+
+const custTxList      = ref([])
+const custTxLoading   = ref(false)
+const showCustTxModal = ref(false)
+const custAsItems     = ref([])
+const custUnpaidItems = ref([])
+const custReserveItems = ref([])
+const showExtraModal  = ref(false)
+const extraModalType  = ref('as') // 'as' | 'unpaid' | 'reserve'
+
+const asOpen      = computed(() => custAsItems.value.filter(r => r.status !== 'AS완료'))
+const unpaidOpen  = computed(() => custUnpaidItems.value.filter(r => !r.is_fulfilled))
+const reserveOpen = computed(() => custReserveItems.value.filter(r => r.status !== '완료' && r.status !== '취소'))
+
+function openExtraModal(type) {
+  extraModalType.value = type
+  showExtraModal.value = true
+}
+
+async function loadCustTx(customerId) {
+  custTxLoading.value = true
+  custTxList.value = []
+  custAsItems.value = []
+  custUnpaidItems.value = []
+  custReserveItems.value = []
+  try {
+    const [txRes, asRes, unpaidRes, reserveRes] = await Promise.all([
+      api.get(`/customers/${customerId}/transactions`),
+      api.get(`/customers/${customerId}/as-cases`),
+      api.get(`/customers/${customerId}/unpaid`),
+      api.get(`/customers/${customerId}/reservations`),
+    ])
+    custTxList.value      = txRes.data      || []
+    custAsItems.value     = asRes.data      || []
+    custUnpaidItems.value = unpaidRes.data  || []
+    custReserveItems.value = reserveRes.data || []
+  } catch (e) { console.error(e) }
+  finally { custTxLoading.value = false }
+}
+
+function fmtTxDate(dt) {
+  if (!dt) return ''
+  const d = new Date(dt)
+  return `${String(d.getMonth()+1).padStart(2,'0')}.${String(d.getDate()).padStart(2,'0')} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`
+}
+
+function selectCustomer(c) {
+  customer.value = c
+  isGuest.value = false
+  custQ.value = c.name
+  showCustDrop.value = false
+  custResults.value = []
+  loadCustTx(c.id)
+}
+
+const showGuestConfirm = ref(false)
+
+function setGuest() {
+  customer.value = null
+  isGuest.value = true
+  custQ.value = ''
+  custResults.value = []
+  showCustDrop.value = false
+  milesUsed.value = 0
+}
+
+function confirmGuest() {
+  showGuestConfirm.value = false
+  setGuest()
 }
 
 function clearCustomer() {
   customer.value = null
+  isGuest.value = false
   custQ.value = ''
   milesUsed.value = 0
+  custResults.value = []
+  showCustDrop.value = false
+  custTxList.value       = []
+  custAsItems.value      = []
+  custUnpaidItems.value  = []
+  custReserveItems.value = []
+  showCustTxModal.value  = false
+  showExtraModal.value   = false
+}
+
+// ── 신규 고객 등록 ────────────────────────────
+const showNewCustModal = ref(false)
+const newCust = ref({ name: '', phone: '', staff_memo: '' })
+const newCustErr = ref('')
+const creatingCust = ref(false)
+
+async function createCustomer() {
+  newCustErr.value = ''
+  if (!newCust.value.name.trim()) { newCustErr.value = '이름을 입력하세요'; return }
+  if (!newCust.value.phone.trim()) { newCustErr.value = '전화번호를 입력하세요'; return }
+  creatingCust.value = true
+  try {
+    const res = await api.post('/customers', {
+      name:       newCust.value.name.trim(),
+      phone:      newCust.value.phone.trim(),
+      staff_memo: newCust.value.staff_memo.trim() || null,
+    })
+    selectCustomer(res.data)
+    showNewCustModal.value = false
+    newCust.value = { name: '', phone: '', staff_memo: '' }
+  } catch (e) {
+    newCustErr.value = e.response?.data?.detail || '등록 실패'
+  } finally {
+    creatingCust.value = false
+  }
 }
 
 // ── 장바구니 ──────────────────────────────────
@@ -472,7 +857,7 @@ const payResult = computed(() => {
     cash:          payMethod.value !== '카드' ? total - miles : 0,
     card:          payMethod.value === '카드' ? total - miles : 0,
     milesUsed:     miles,
-    milesBalance:  customer.value?.mileage_balance || 0,
+    milesBalance:  (!isGuest.value && customer.value?.mileage_balance) || 0,
     priceResult:   priceResult.value,
     services:      svcBundles.value,
     channel:       cart.channel,
@@ -559,6 +944,14 @@ function openSvcModal(svc) {
 }
 
 // ── 저장 ─────────────────────────────────────
+function toDbNature(nature) {
+  if (!nature) return '현금이체'
+  if (nature.startsWith('마일리지')) return '마일리지전액'
+  if (nature.includes('카드 20%') || nature.includes('20이하')) return '현금이체_카드20이하'
+  if (nature === '카드') return '카드'
+  return '현금이체'
+}
+
 async function confirmSave() {
   saving.value = true
   try {
@@ -569,12 +962,10 @@ async function confirmSave() {
     const pr2 = payResult.value
 
     const lines = cart.items.map(i => ({
-      product_id:    i.id,
-      qty:           i.qty,
-      normal_price:  i.normalPrice,
-      applied_price: lm.get(i.id) ?? i.normalPrice * i.qty,
-      line_type:     '판매',
-      service_type:  '해당없음',
+      product_id: i.id,
+      quantity:   i.qty,
+      unit_price: i.normalPrice,
+      line_total: lm.get(i.id) ?? i.normalPrice * i.qty,
     }))
 
     const payments = [{ method: payMethod.value, amount: total - miles }]
@@ -583,14 +974,10 @@ async function confirmSave() {
     const services = svcBundles.value.map(svc => {
       const names = []
       for (const b of svc.bundles) for (const s of b.slots) if (s.selectedProduct) names.push(s.selectedProduct.name)
-      const delivered = names.length
       return {
-        service_kind:    svc.kind,
-        total_qty:       svc.qty,
-        delivered_qty:   delivered,
-        undelivered_qty: svc.qty - delivered,
-        selected_item:   names.join(', ') || null,
-        delivery_status: delivered === 0 ? '미지급' : delivered < svc.qty ? '부분지급' : '전체지급',
+        service_type: svc.kind,
+        quantity:     svc.qty,
+        note:         names.join(', ') || null,
       }
     })
 
@@ -603,7 +990,7 @@ async function confirmSave() {
       total_amount:     total,
       mileage_used:     miles,
       mileage_earned:   pr2?.earnAmt || 0,
-      payment_nature:   pr2?.nature || '현금/이체',
+      payment_nature:   toDbNature(pr2?.nature),
       card_ratio_pct:   pr2?.cardPct || 0,
       service_eligible: pr2?.svcEligible ?? true,
       earn_eligible:    pr2?.earnEligible ?? false,
@@ -616,6 +1003,7 @@ async function confirmSave() {
     showSaveModal.value = false
     cart.clearCart()
     customer.value   = null
+    isGuest.value    = false
     custQ.value      = ''
     milesUsed.value  = 0
     payMethod.value  = '이체'
@@ -645,15 +1033,90 @@ onMounted(async () => {
 .pos-left { display:flex; flex-direction:column; flex:1; min-width:0; overflow:hidden; border-right:1px solid var(--bd); }
 
 /* 고객 바 */
-.cust-bar { padding:8px 12px; border-bottom:1px solid var(--bd); background:var(--bg2); flex-shrink:0; }
+.cust-bar { padding:10px 12px; border-bottom:1px solid var(--bd); background:var(--bg2); flex-shrink:0; }
 .cust-row { display:flex; align-items:center; gap:6px; }
-.cust-lbl { font-size:10px; color:var(--tx2); font-weight:600; font-family:var(--mono); min-width:38px; }
-.cust-inp { flex:1; border:1px solid var(--bd2); border-radius:6px; padding:5px 9px; font-size:12px; font-family:var(--sans); color:var(--tx); background:var(--bg); outline:none; }
+.cust-lbl { font-size:10px; color:var(--tx2); font-weight:600; font-family:var(--mono); min-width:30px; }
+.cust-search-wrap { flex:1; position:relative; }
+.cust-inp { width:100%; border:1.5px solid var(--bd2); border-radius:6px; padding:6px 9px; font-size:12px; font-family:var(--sans); color:var(--tx); background:var(--bg); outline:none; box-sizing:border-box; }
 .cust-inp:focus { border-color:var(--ac2); }
-.cust-info { margin-top:6px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:6px; padding:7px 10px; display:none; }
-.cust-info.show { display:flex; align-items:center; gap:8px; }
-.cust-av { width:28px; height:28px; border-radius:50%; background:var(--ac2); display:flex; align-items:center; justify-content:center; font-size:11px; font-weight:700; color:#fff; flex-shrink:0; }
-.cust-clear { cursor:pointer; color:var(--tx3); font-size:14px; line-height:1; padding:2px; }
+/* 검색 드롭다운 */
+.cust-drop { position:absolute; top:calc(100% + 4px); left:0; right:0; z-index:200; background:var(--bg2); border:1px solid var(--bd2); border-radius:8px; box-shadow:0 8px 24px rgba(0,0,0,.16); max-height:300px; overflow-y:auto; }
+.cust-opt { display:flex; align-items:center; gap:10px; padding:10px 14px; cursor:pointer; border-bottom:0.5px solid var(--bd); }
+.cust-opt:last-child { border-bottom:none; }
+.cust-opt:hover { background:var(--bg3); }
+.cust-opt-empty { padding:16px; font-size:11px; color:var(--tx3); text-align:center; }
+.co-av { width:32px; height:32px; border-radius:50%; background:var(--ac2); color:#fff; display:flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; flex-shrink:0; }
+.co-main { flex:1; min-width:0; }
+.co-name { font-size:13px; font-weight:700; display:flex; align-items:center; gap:8px; }
+.co-phone { font-family:var(--mono); font-size:11px; color:var(--tx2); font-weight:400; }
+.co-meta { font-size:10px; color:var(--tx3); font-family:var(--mono); margin-top:2px; }
+.co-pts-wrap { text-align:right; flex-shrink:0; }
+.co-pts-lbl { font-size:9px; color:var(--tx3); font-family:var(--mono); }
+.co-pts { font-family:var(--mono); font-size:13px; font-weight:700; color:var(--ac2); }
+/* 버튼 */
+.pill-btn { display:inline-flex; align-items:center; padding:4px 11px; border-radius:20px; border:1px solid var(--bd2); background:var(--bg); cursor:pointer; font-size:11px; font-weight:600; color:var(--tx2); white-space:nowrap; transition:all .12s; font-family:var(--sans); }
+.pill-btn.ac2 { background:var(--ac2); color:#fff; border-color:var(--ac2); }
+.pill-btn.gr  { background:var(--gr);  color:#fff; border-color:var(--gr); }
+.pill-btn.gy  { background:var(--bg);  color:var(--tx2); border-color:var(--bd2); }
+.pill-btn.gy:hover { background:var(--bg3); }
+/* 선택된 고객 패널 */
+.cust-panel { margin-top:9px; background:#eff6ff; border:1px solid #bfdbfe; border-radius:8px; padding:10px 14px 0; display:flex; flex-direction:column; gap:0; }
+.cust-panel.guest { background:var(--bg3); border-color:var(--bd2); padding-bottom:10px; }
+.cp-top { display:flex; align-items:center; gap:12px; padding-bottom:10px; }
+.cp-left { display:flex; align-items:center; gap:10px; flex-shrink:0; }
+.cp-av { width:38px; height:38px; border-radius:50%; background:var(--ac2); color:#fff; display:flex; align-items:center; justify-content:center; font-size:15px; font-weight:700; flex-shrink:0; }
+.cp-name { font-size:13px; font-weight:700; display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.cp-memo-badge { font-size:10px; font-weight:400; color:var(--tx2); background:rgba(255,255,255,.7); border-radius:4px; padding:1px 6px; max-width:120px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cp-phone { font-family:var(--mono); font-size:11px; color:var(--tx2); margin-top:2px; }
+.cp-stats { display:flex; gap:18px; margin-left:auto; }
+.cp-stat { text-align:center; min-width:50px; }
+.cp-stat-v { font-family:var(--mono); font-size:13px; font-weight:700; }
+.cp-stat-l { font-size:9px; color:var(--tx3); font-family:var(--mono); margin-top:1px; }
+.cp-stat.ac .cp-stat-v { color:var(--ac2); }
+.cp-miles { font-size:18px !important; color:var(--re) !important; }
+.cust-placeholder { margin-top:9px; height:62px; border-radius:8px; border:1.5px dashed var(--bd2); background:var(--bg); display:flex; align-items:center; justify-content:center; }
+.cust-placeholder::after { content:'고객을 검색하거나 비회원으로 진행하세요'; font-size:11px; color:var(--tx3); font-family:var(--mono); }
+.cust-clear { cursor:pointer; color:var(--tx3); font-size:16px; line-height:1; padding:4px; flex-shrink:0; }
+/* 상태 배지 */
+.cp-badges { display:flex; gap:6px; padding:8px 0 4px; border-top:1px solid #bfdbfe; flex-wrap:wrap; }
+.cp-badge { display:inline-flex; align-items:center; gap:5px; padding:4px 10px; border-radius:20px; border:1px solid var(--bd2); background:var(--bg); font-size:11px; font-weight:600; color:var(--tx2); cursor:pointer; font-family:var(--sans); transition:all .12s; }
+.cp-badge:hover { background:var(--bg3); }
+.cp-badge.red { border-color:var(--re); background:#fff1f2; color:var(--re); }
+.cp-badge-open { font-size:9px; background:var(--re); color:#fff; border-radius:20px; padding:1px 5px; font-family:var(--mono); }
+/* 최근 거래 */
+.cp-txs { border-top:1px solid #bfdbfe; padding:8px 0; display:flex; flex-direction:column; gap:4px; }
+.cust-panel.guest .cp-txs { border-top-color:var(--bd); }
+.cp-txs-empty { flex-direction:row; align-items:center; min-height:32px; }
+.cp-tx-hd { display:flex; align-items:center; font-size:10px; color:var(--tx3); font-weight:600; font-family:var(--mono); margin-bottom:4px; }
+.cp-more-btn { margin-left:auto; font-size:10px; color:var(--ac2); background:none; border:none; cursor:pointer; font-family:var(--sans); font-weight:600; padding:0; }
+.cp-more-btn:hover { text-decoration:underline; }
+.cp-tx-row { display:flex; align-items:center; gap:8px; padding:3px 0; font-size:11px; }
+.cp-tx-date { color:var(--tx3); font-size:10px; flex-shrink:0; min-width:72px; }
+.cp-tx-sum { flex:1; min-width:0; color:var(--tx); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cp-tx-amt { font-weight:700; flex-shrink:0; color:var(--tx); }
+/* 비회원 안내 */
+.guest-warn-body { background:var(--bg); border-radius:8px; padding:14px 16px; margin:12px 0; font-size:12px; line-height:1.7; color:var(--tx2); }
+.guest-warn-body p { margin:0 0 10px; }
+.guest-warn-list { margin:0 0 12px; padding-left:0; list-style:none; display:flex; flex-direction:column; gap:6px; }
+.guest-warn-list li { display:flex; align-items:center; gap:8px; padding:6px 10px; background:var(--bg2); border-radius:6px; border:1px solid var(--bd); font-size:12px; }
+.gw-ic { font-size:14px; flex-shrink:0; width:20px; text-align:center; }
+.guest-warn-tip { margin:0 !important; font-size:11px; color:var(--tx3); background:#fffbeb; border:1px solid #fde68a; border-radius:6px; padding:7px 10px; }
+/* 거래 내역 모달 */
+.ctx-list { max-height:380px; overflow-y:auto; border:1px solid var(--bd); border-radius:6px; margin-bottom:12px; }
+.ctx-row { display:flex; align-items:center; gap:8px; padding:8px 12px; border-bottom:0.5px solid var(--bd); font-size:12px; }
+.ctx-row:last-child { border-bottom:none; }
+.ctx-row:hover { background:var(--bg3); }
+.ctx-date { color:var(--tx3); font-size:10px; flex-shrink:0; min-width:80px; }
+.ctx-ch { font-size:10px; color:var(--tx2); flex-shrink:0; }
+.ctx-sum { flex:1; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.ctx-amt { font-family:var(--mono); font-weight:700; flex-shrink:0; min-width:80px; text-align:right; }
+.ctx-staff { font-size:10px; color:var(--tx3); flex-shrink:0; min-width:40px; text-align:right; }
+/* 신규 등록 폼 */
+.nf-row { display:flex; align-items:center; gap:10px; }
+.nf-lbl { font-size:11px; color:var(--tx2); min-width:72px; font-weight:500; }
+.nf-req { color:var(--re); }
+.nf-inp { flex:1; border:1px solid var(--bd2); border-radius:5px; padding:6px 9px; font-size:12px; font-family:var(--sans); color:var(--tx); background:var(--bg); outline:none; }
+.nf-inp:focus { border-color:var(--ac2); }
 
 /* 상품 */
 .prod-area { flex:1; overflow-y:auto; padding:8px 10px; }

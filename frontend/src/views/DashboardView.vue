@@ -33,12 +33,15 @@
 
     <!-- 본문 그리드 -->
     <div class="g65">
-      <!-- 거래 목록 -->
+      <!-- 판매 목록 -->
       <div class="card">
         <div class="ch">
-          오늘 거래 내역
+          오늘 판매 내역
           <span class="ch-sub">{{ today }}</span>
-          <button class="btn sm" @click="load" style="margin-left:auto">새로고침</button>
+          <router-link to="/tx-history" style="margin-left:auto;text-decoration:none">
+            <button class="btn sm">전체 보기 →</button>
+          </router-link>
+          <button class="btn sm" @click="load">새로고침</button>
         </div>
         <table class="tw">
           <thead>

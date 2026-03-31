@@ -6,9 +6,11 @@ import enum
 
 
 class AsStatus(str, enum.Enum):
-    접수   = "접수"
-    처리중 = "처리중"
-    AS완료 = "AS완료"
+    접수      = "접수"
+    발송처리중 = "발송/처리중"
+    입고      = "입고"
+    연락완료   = "연락완료"
+    AS완료    = "AS완료"
 
 
 class AsCase(Base):
@@ -24,10 +26,17 @@ class AsCase(Base):
     symptom    = Column(Text, nullable=False, default="")
     diagnosis  = Column(Text, nullable=True)
     resolution = Column(Text, nullable=True)
-    status     = Column(Enum(AsStatus, name="ascasestatus", create_type=False), nullable=False, default=AsStatus.접수)
+    status     = Column(
+        Enum(AsStatus, name="ascasestatus", create_type=False,
+             values_callable=lambda x: [e.value for e in x]),
+        nullable=False, default=AsStatus.접수
+    )
 
     received_by  = Column(Integer, ForeignKey("staff.id"), nullable=True)
     completed_by = Column(Integer, ForeignKey("staff.id"), nullable=True)
+
+    wholesale_verdict  = Column(String(20), nullable=True)   # 수리가능/수리불가/무상/유상
+    repair_cost        = Column(Integer, nullable=True)
 
     loaner_product_id  = Column(Integer, ForeignKey("products.id"), nullable=True)
     loaner_out_date    = Column(DateTime(timezone=True), nullable=True)
