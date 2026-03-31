@@ -47,7 +47,7 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function fetchAccessibleStores() {
     try {
-      const res = await api.get('/stores/accessible')
+      const res = await api.get('/auth/stores/accessible')
       accessibleStores.value = res.data
       // currentStoreId가 접근 불가한 매장이면 첫 번째 매장으로 리셋
       if (accessibleStores.value.length > 0) {

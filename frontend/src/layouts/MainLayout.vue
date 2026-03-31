@@ -119,7 +119,7 @@
             >{{ s.name }}</div>
           </div>
         </div>
-        <span v-else class="store-label">{{ auth.currentStoreName }}</span>
+        <span v-else class="store-label">{{ auth.currentStoreName || auth.staff?.store_name || '' }}</span>
 
         <span class="tb-dt">{{ today }}</span>
         <router-link to="/sale">

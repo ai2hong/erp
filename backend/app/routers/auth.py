@@ -673,11 +673,16 @@ async def update_staff(
             db.add(StaffStoreAccess(staff_id=target.id, store_id=sid))
 
     await db.commit()
-    await db.refresh(target)
+    await db.refresh(target, attribute_names=["id", "name", "login_id", "role", "store_id"])
+    # store_accesses를 다시 조회
+    accesses = await db.scalars(
+        select(StaffStoreAccess.store_id).where(StaffStoreAccess.staff_id == target.id)
+    )
     return {
         "id": target.id, "name": target.name,
         "login_id": target.login_id, "role": target.role,
         "store_id": target.store_id,
+        "accessible_store_ids": list(accesses.all()),
     }
 
 
