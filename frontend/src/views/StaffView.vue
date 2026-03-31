@@ -178,6 +178,15 @@
             <option v-for="s in stores" :key="s.id" :value="s.id">{{ s.name }}</option>
           </select>
         </div>
+        <div v-if="editForm.role === '시니어' || editForm.role === '총괄'" style="margin-top:2px">
+          <label style="font-size:11px;font-weight:600;color:var(--tx2)">접근 매장</label>
+          <div style="display:flex;gap:12px;margin-top:6px">
+            <label v-for="s in stores" :key="s.id" style="display:flex;align-items:center;gap:4px;font-size:12px;cursor:pointer">
+              <input type="checkbox" :value="s.id" v-model="editForm.accessible_store_ids" />
+              {{ s.name }}
+            </label>
+          </div>
+        </div>
         <div v-if="editErr" class="err">{{ editErr }}</div>
         <div v-if="editOk" class="suc">{{ editOk }}</div>
         <div class="modal-ft">
@@ -294,13 +303,13 @@ async function loadMembers() {
 // ── 수정 ──────────────────────────────────────────────────────
 const showEditModal = ref(false)
 const editTarget    = ref(null)
-const editForm      = ref({ name: '', role: '', store_id: null })
+const editForm      = ref({ name: '', role: '', store_id: null, accessible_store_ids: [] })
 const editErr       = ref('')
 const editOk        = ref('')
 
 function openEdit(m) {
   editTarget.value = m
-  editForm.value   = { name: m.name, role: m.role, store_id: m.store_id }
+  editForm.value   = { name: m.name, role: m.role, store_id: m.store_id, accessible_store_ids: m.accessible_store_ids || [] }
   editErr.value = ''; editOk.value = ''
   showEditModal.value = true
 }
