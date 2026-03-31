@@ -90,9 +90,11 @@ class TokenResponse(BaseModel):
     access_token:  str
     refresh_token: str
     token_type:    str = "bearer"
+    id:            int
     name:          str
     role:          str
     store_id:      int
+    store_name:    str = ""
 
 
 class RefreshRequest(BaseModel):
@@ -188,7 +190,7 @@ async def login(
     staff = await db.scalar(
         select(Staff)
         .where(Staff.login_id == body.login_id)
-        .options(selectinload(Staff.store_accesses))
+        .options(selectinload(Staff.store_accesses), selectinload(Staff.store))
     )
 
     if not staff or not verify_password(body.password, staff.hashed_password):
@@ -260,9 +262,11 @@ async def login(
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+        id=staff.id,
         name=staff.name,
         role=staff.role,
         store_id=staff.store_id,
+        store_name=staff.store.name if staff.store else "",
     )
 
 
@@ -299,7 +303,9 @@ async def refresh(
     if not session:
         raise HTTPException(401, "유효하지 않은 세션입니다. 다시 로그인해주세요.")
 
-    staff = await db.scalar(select(Staff).where(Staff.id == payload.sub))
+    staff = await db.scalar(
+        select(Staff).where(Staff.id == payload.sub).options(selectinload(Staff.store))
+    )
     if not staff or not staff.is_active:
         raise HTTPException(403, "접근 불가 계정입니다.")
 
@@ -324,9 +330,11 @@ async def refresh(
     return TokenResponse(
         access_token=new_access,
         refresh_token=new_refresh,
+        id=staff.id,
         name=staff.name,
         role=staff.role,
         store_id=staff.store_id,
+        store_name=staff.store.name if staff.store else "",
     )
 
 
