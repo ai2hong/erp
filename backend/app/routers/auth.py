@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import re
 
-from app.core.deps import get_current_staff, RequireGeneral, RequireOwner
+from app.core.deps import get_current_staff, RequireAny, RequireGeneral, RequireOwner
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -534,6 +534,36 @@ async def get_stores(
         select(Store).where(Store.is_active == True).order_by(Store.id)
     )
     return [{"id": s.id, "name": s.name} for s in stores.all()]
+
+
+@router.get("/stores/accessible", summary="현재 직원이 접근 가능한 매장 목록")
+async def get_accessible_stores(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current: Annotated[Staff, RequireAny],
+):
+    """
+    - 매니저: 소속 매장 1개
+    - 시니어/총괄: StaffStoreAccess에 등록된 매장
+    - 사장/관리자: 전체 활성 매장
+    """
+    if current.can_access_all:
+        rows = await db.scalars(
+            select(Store).where(Store.is_active == True).order_by(Store.id)
+        )
+        stores = rows.all()
+    elif current.role == StaffRole.매니저:
+        store = await db.scalar(select(Store).where(Store.id == current.store_id))
+        stores = [store] if store else []
+    else:
+        store_ids = [a.store_id for a in current.store_accesses]
+        if store_ids:
+            rows = await db.scalars(
+                select(Store).where(Store.id.in_(store_ids), Store.is_active == True).order_by(Store.id)
+            )
+            stores = rows.all()
+        else:
+            stores = []
+    return [{"id": s.id, "name": s.name} for s in stores]
 
 
 # ── 비밀번호 초기화 (총괄 이상) ──────────────────────────────
