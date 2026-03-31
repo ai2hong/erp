@@ -31,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import re
 
-from app.core.deps import get_current_staff, RequireGeneral
+from app.core.deps import get_current_staff, RequireGeneral, RequireOwner
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -543,11 +543,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
-@router.post("/admin/reset-password", summary="직원 비밀번호 초기화 [총괄 이상]")
+@router.post("/admin/reset-password", summary="직원 비밀번호 초기화 [사장 이상]")
 async def reset_password(
     body: ResetPasswordRequest,
     db: Annotated[AsyncSession, Depends(get_db)],
-    current: Annotated[Staff, RequireGeneral],
+    current: Annotated[Staff, RequireOwner],
 ):
     target = await db.scalar(select(Staff).where(Staff.id == body.staff_id))
     if not target:
@@ -566,3 +566,87 @@ async def reset_password(
     target.hashed_password = hash_password(body.new_password)
     await db.commit()
     return {"message": f"{target.name} 비밀번호가 초기화되었습니다."}
+
+
+# ── 직원 목록 조회 ────────────────────────────────────────────
+@router.get("/admin/staff", summary="직원 전체 목록 [총괄 이상]")
+async def list_staff(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current: Annotated[Staff, RequireGeneral],
+):
+    rows = await db.scalars(
+        select(Staff)
+        .where(Staff.is_active == True)
+        .options(selectinload(Staff.store))
+        .order_by(Staff.name)
+    )
+    return [
+        {
+            "id":       s.id,
+            "name":     s.name,
+            "login_id": s.login_id,
+            "role":     s.role,
+            "store_id": s.store_id,
+            "store_name": s.store.name if s.store else None,
+            "is_active": s.is_active,
+        }
+        for s in rows.all()
+    ]
+
+
+# ── 직원 정보 수정 ────────────────────────────────────────────
+class StaffUpdateBody(BaseModel):
+    name:     Optional[str] = None
+    role:     Optional[str] = None
+    store_id: Optional[int] = None
+
+
+@router.put("/admin/staff/{staff_id}", summary="직원 정보 수정 [총괄 이상]")
+async def update_staff(
+    staff_id: int,
+    body: StaffUpdateBody,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current: Annotated[Staff, RequireGeneral],
+):
+    target = await db.scalar(select(Staff).where(Staff.id == staff_id, Staff.is_active == True))
+    if not target:
+        raise HTTPException(404, "직원을 찾을 수 없습니다.")
+    if target.id == current.id:
+        raise HTTPException(400, "본인 정보는 이 화면에서 수정할 수 없습니다.")
+
+    if body.name     is not None: target.name     = body.name
+    if body.role     is not None: target.role     = StaffRole(body.role)
+    if body.store_id is not None: target.store_id = body.store_id
+
+    await db.commit()
+    await db.refresh(target)
+    return {
+        "id": target.id, "name": target.name,
+        "login_id": target.login_id, "role": target.role,
+        "store_id": target.store_id,
+    }
+
+
+# ── 직원 삭제 (비활성화) ──────────────────────────────────────
+@router.delete("/admin/staff/{staff_id}", summary="직원 삭제 [사장 이상]")
+async def delete_staff(
+    staff_id: int,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    current: Annotated[Staff, RequireOwner],
+):
+    target = await db.scalar(select(Staff).where(Staff.id == staff_id, Staff.is_active == True))
+    if not target:
+        raise HTTPException(404, "직원을 찾을 수 없습니다.")
+    if target.id == current.id:
+        raise HTTPException(400, "본인 계정은 삭제할 수 없습니다.")
+
+    role_order = {
+        StaffRole.매니저: 1, StaffRole.시니어: 2,
+        StaffRole.총괄: 3, StaffRole.사장: 4, StaffRole.관리자: 5,
+    }
+    if role_order.get(target.role, 0) >= role_order.get(current.role, 0):
+        raise HTTPException(403, "자신과 같거나 높은 권한의 직원은 삭제할 수 없습니다.")
+
+    target.is_active = False
+    await db.commit()
+    return {"message": f"{target.name} 계정이 비활성화되었습니다."}
