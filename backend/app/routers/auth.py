@@ -26,12 +26,12 @@ from typing import Annotated, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from pydantic import BaseModel, field_validator
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 import re
 
-from app.core.deps import get_current_staff, RequireAny, RequireGeneral, RequireOwner
+from app.core.deps import get_current_staff, RequireAny, RequireGeneral, RequireOwner, ROLE_LEVEL
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -607,7 +607,7 @@ async def list_staff(
     rows = await db.scalars(
         select(Staff)
         .where(Staff.is_active == True)
-        .options(selectinload(Staff.store))
+        .options(selectinload(Staff.store), selectinload(Staff.store_accesses))
         .order_by(Staff.name)
     )
     return [
@@ -619,6 +619,7 @@ async def list_staff(
             "store_id": s.store_id,
             "store_name": s.store.name if s.store else None,
             "is_active": s.is_active,
+            "accessible_store_ids": [a.store_id for a in s.store_accesses],
         }
         for s in rows.all()
     ]
@@ -629,6 +630,7 @@ class StaffUpdateBody(BaseModel):
     name:     Optional[str] = None
     role:     Optional[str] = None
     store_id: Optional[int] = None
+    accessible_store_ids: Optional[list[int]] = None
 
 
 @router.put("/admin/staff/{staff_id}", summary="직원 정보 수정 [총괄 이상]")
@@ -647,6 +649,20 @@ async def update_staff(
     if body.name     is not None: target.name     = body.name
     if body.role     is not None: target.role     = StaffRole(body.role)
     if body.store_id is not None: target.store_id = body.store_id
+
+    if body.accessible_store_ids is not None:
+        # 사장 이상만 접근 매장 설정 가능
+        if ROLE_LEVEL.get(current.role, 0) < ROLE_LEVEL[StaffRole.사장]:
+            raise HTTPException(403, "접근 매장 설정은 사장 이상만 가능합니다.")
+        # 시니어/총괄만 대상
+        if target.role not in (StaffRole.시니어, StaffRole.총괄):
+            raise HTTPException(400, "접근 매장 설정은 시니어/총괄 직원에게만 적용됩니다.")
+        # 기존 접근 매장 삭제 후 새로 추가
+        await db.execute(
+            delete(StaffStoreAccess).where(StaffStoreAccess.staff_id == target.id)
+        )
+        for sid in body.accessible_store_ids:
+            db.add(StaffStoreAccess(staff_id=target.id, store_id=sid))
 
     await db.commit()
     await db.refresh(target)
