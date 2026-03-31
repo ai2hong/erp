@@ -5,7 +5,7 @@
     <aside class="sb">
       <div class="sb-logo">
         <div class="name">Vape<span style="color:var(--ac)">ERP</span></div>
-        <div class="sub">{{ auth.staff?.store_name || '' }} · {{ today }}</div>
+        <div class="sub">{{ auth.currentStoreName || auth.staff?.store_name || '' }} · {{ today }}</div>
       </div>
 
       <div class="sb-sec">판매</div>
@@ -81,6 +81,11 @@
           <span class="ni-ic">⊞</span>직원 관리
         </div>
       </router-link>
+      <router-link to="/products" custom v-slot="{ navigate, isActive }">
+        <div class="ni" :class="{ on: isActive }" @click="navigate">
+          <span class="ni-ic">▤</span>품목 관리
+        </div>
+      </router-link>
 
       <!-- 하단 사용자 정보 -->
       <div class="sb-bot">
@@ -101,6 +106,21 @@
       <div class="topbar">
         <div class="tb-ttl">{{ pageTitle }}</div>
         <span v-if="!todayClosed" class="bx wn">일마감 미완료</span>
+
+        <!-- 매장 전환 드롭다운 -->
+        <div v-if="auth.canSwitchStore" class="store-sw" @click="showStoreDropdown = !showStoreDropdown" @mouseleave="showStoreDropdown = false">
+          <span class="store-cur">{{ auth.currentStoreName }}</span>
+          <span class="store-arrow">&#9662;</span>
+          <div v-if="showStoreDropdown" class="store-dd">
+            <div
+              v-for="s in auth.accessibleStores" :key="s.id"
+              class="store-opt" :class="{ active: s.id === auth.currentStoreId }"
+              @click.stop="auth.switchStore(s.id); showStoreDropdown = false"
+            >{{ s.name }}</div>
+          </div>
+        </div>
+        <span v-else class="store-label">{{ auth.currentStoreName }}</span>
+
         <span class="tb-dt">{{ today }}</span>
         <router-link to="/sale">
           <button class="btn pr">+ 판매 등록</button>
@@ -124,6 +144,13 @@ const auth = useAuthStore()
 const route = useRoute()
 const todayClosed = ref(false)
 const badges = ref({ unpaid: 0, stock: 0, approval: 0, transfers: 0 })
+const showStoreDropdown = ref(false)
+
+onMounted(async () => {
+  if (auth.isLoggedIn) {
+    await auth.fetchAccessibleStores()
+  }
+})
 
 const today = computed(() => {
   const d = new Date()
@@ -142,6 +169,7 @@ const PAGE_TITLES = {
   '/dayclose':  '일마감',
   '/approval':  '승인 로그',
   '/staff':     '직원 관리',
+  '/products':  '품목 관리',
   '/transfers': '택배 / 배달',
 }
 
@@ -195,4 +223,23 @@ const pageTitle = computed(() => PAGE_TITLES[route.path] || 'VapeERP')
 .btn.pr { background:var(--ac);color:#fff;border-color:var(--ac) }
 .bx { display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600;font-family:var(--mono) }
 .bx.wn { background:#fef9c3;color:#854d0e }
+.store-sw {
+  position:relative;cursor:pointer;display:flex;align-items:center;gap:4px;
+  padding:3px 10px;border-radius:var(--r);background:var(--bg);border:1px solid var(--bd2);
+  font-size:12px;font-weight:600;user-select:none
+}
+.store-sw:hover { border-color:var(--ac) }
+.store-cur { color:var(--tx) }
+.store-arrow { font-size:9px;color:var(--tx3) }
+.store-dd {
+  position:absolute;top:100%;left:0;margin-top:4px;min-width:140px;
+  background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r);
+  box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:100;overflow:hidden
+}
+.store-opt {
+  padding:7px 12px;font-size:12px;cursor:pointer;transition:background .1s
+}
+.store-opt:hover { background:var(--bg) }
+.store-opt.active { color:var(--ac);font-weight:600 }
+.store-label { font-size:12px;color:var(--tx3);font-weight:500 }
 </style>
