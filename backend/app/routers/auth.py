@@ -552,7 +552,7 @@ async def get_accessible_stores(
         )
         stores = rows.all()
     elif current.role == StaffRole.매니저:
-        store = await db.scalar(select(Store).where(Store.id == current.store_id))
+        store = await db.scalar(select(Store).where(Store.id == current.store_id, Store.is_active == True))
         stores = [store] if store else []
     else:
         store_ids = [a.store_id for a in current.store_accesses]
