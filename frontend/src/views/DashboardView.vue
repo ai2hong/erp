@@ -91,7 +91,7 @@
           <div class="ch">담당자 정보</div>
           <div class="si-row"><span class="si-k">이름</span><span>{{ auth.staff?.name }}</span></div>
           <div class="si-row"><span class="si-k">역할</span><span>{{ auth.staff?.role }}</span></div>
-          <div class="si-row"><span class="si-k">매장 ID</span><span class="mono">#{{ auth.staff?.store_id }}</span></div>
+          <div class="si-row"><span class="si-k">매장</span><span>{{ auth.currentStoreName || auth.staff?.store_name || '' }}</span></div>
           <div class="si-row"><span class="si-k">날짜</span><span class="mono">{{ today }}</span></div>
         </div>
       </div>
@@ -105,7 +105,7 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 
 const auth = useAuthStore()
-const storeId = computed(() => auth.staff?.store_id || 1)
+const storeId = computed(() => auth.storeId)
 
 const transactions = ref([])
 const inventory    = ref([])

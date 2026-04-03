@@ -5,7 +5,20 @@
     <aside class="sb">
       <div class="sb-logo">
         <div class="name">Vape<span style="color:var(--ac)">ERP</span></div>
-        <div class="sub">{{ auth.currentStoreName || auth.staff?.store_name || '' }} · {{ today }}</div>
+        <div class="sub">
+          <span v-if="auth.canSwitchStore" class="store-sw" @click.stop="showStoreDropdown = !showStoreDropdown">
+            {{ auth.currentStoreName }}<span class="store-arrow">&#9662;</span>
+            <div v-if="showStoreDropdown" class="store-dd" @mouseleave="showStoreDropdown = false">
+              <div
+                v-for="s in auth.accessibleStores" :key="s.id"
+                class="store-opt" :class="{ active: s.id === auth.currentStoreId }"
+                @click.stop="auth.switchStore(s.id); showStoreDropdown = false"
+              >{{ s.name }}</div>
+            </div>
+          </span>
+          <span v-else>{{ auth.currentStoreName || auth.staff?.store_name || '' }}</span>
+          · {{ today }}
+        </div>
       </div>
 
       <div class="sb-sec">판매</div>
@@ -106,21 +119,6 @@
       <div class="topbar">
         <div class="tb-ttl">{{ pageTitle }}</div>
         <span v-if="!todayClosed" class="bx wn">일마감 미완료</span>
-
-        <!-- 매장 전환 드롭다운 -->
-        <div v-if="auth.canSwitchStore" class="store-sw" @click="showStoreDropdown = !showStoreDropdown" @mouseleave="showStoreDropdown = false">
-          <span class="store-cur">{{ auth.currentStoreName }}</span>
-          <span class="store-arrow">&#9662;</span>
-          <div v-if="showStoreDropdown" class="store-dd">
-            <div
-              v-for="s in auth.accessibleStores" :key="s.id"
-              class="store-opt" :class="{ active: s.id === auth.currentStoreId }"
-              @click.stop="auth.switchStore(s.id); showStoreDropdown = false"
-            >{{ s.name }}</div>
-          </div>
-        </div>
-        <span v-else class="store-label">{{ auth.currentStoreName || auth.staff?.store_name || '' }}</span>
-
         <span class="tb-dt">{{ today }}</span>
         <router-link to="/sale">
           <button class="btn pr">+ 판매 등록</button>
@@ -224,22 +222,19 @@ const pageTitle = computed(() => PAGE_TITLES[route.path] || 'VapeERP')
 .bx { display:inline-flex;align-items:center;padding:2px 7px;border-radius:20px;font-size:10px;font-weight:600;font-family:var(--mono) }
 .bx.wn { background:#fef9c3;color:#854d0e }
 .store-sw {
-  position:relative;cursor:pointer;display:flex;align-items:center;gap:4px;
-  padding:3px 10px;border-radius:var(--r);background:var(--bg);border:1px solid var(--bd2);
-  font-size:12px;font-weight:600;user-select:none
+  position:relative;cursor:pointer;display:inline-flex;align-items:center;gap:2px;
+  color:rgba(255,255,255,.5);user-select:none;border-bottom:1px dashed rgba(255,255,255,.2)
 }
-.store-sw:hover { border-color:var(--ac) }
-.store-cur { color:var(--tx) }
-.store-arrow { font-size:9px;color:var(--tx3) }
+.store-sw:hover { color:rgba(255,255,255,.8) }
+.store-arrow { font-size:8px;margin-left:1px }
 .store-dd {
-  position:absolute;top:100%;left:0;margin-top:4px;min-width:140px;
-  background:var(--bg2);border:1px solid var(--bd2);border-radius:var(--r);
-  box-shadow:0 4px 12px rgba(0,0,0,.15);z-index:100;overflow:hidden
+  position:absolute;top:100%;left:0;margin-top:4px;min-width:120px;
+  background:#2a2a2a;border:1px solid rgba(255,255,255,.12);border-radius:6px;
+  box-shadow:0 4px 16px rgba(0,0,0,.4);z-index:100;overflow:hidden
 }
 .store-opt {
-  padding:7px 12px;font-size:12px;cursor:pointer;transition:background .1s
+  padding:7px 12px;font-size:11px;cursor:pointer;color:rgba(255,255,255,.6);transition:all .1s
 }
-.store-opt:hover { background:var(--bg) }
+.store-opt:hover { background:rgba(255,255,255,.08);color:#fff }
 .store-opt.active { color:var(--ac);font-weight:600 }
-.store-label { font-size:12px;color:var(--tx3);font-weight:500 }
 </style>

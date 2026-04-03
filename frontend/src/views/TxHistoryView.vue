@@ -122,7 +122,7 @@ import { useAuthStore } from '@/stores/auth'
 import api from '@/api'
 
 const auth = useAuthStore()
-const storeId = computed(() => auth.staff?.store_id || 1)
+const storeId = computed(() => auth.storeId)
 
 // ── 날짜 ────────────────────────────────────────
 const now = new Date()
