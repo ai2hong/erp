@@ -26,6 +26,7 @@ const routes = [
       { path: 'dayclose',  name: 'DayClose',    component: () => import('@/views/DayCloseView.vue') },
       { path: 'approval',  name: 'Approval',    component: () => import('@/views/ApprovalView.vue') },
       { path: 'staff',     name: 'Staff',       component: () => import('@/views/StaffView.vue') },
+      { path: 'products',  name: 'Products',    component: () => import('@/views/ProductsView.vue') },
     ],
   },
 ]

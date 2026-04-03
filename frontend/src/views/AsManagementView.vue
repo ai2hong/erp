@@ -12,6 +12,12 @@
         </div>
         <button class="btn-new" @click="openNewModal">＋ 신규 접수</button>
       </div>
+      <div class="toolbar" style="padding-top:0">
+        <div class="search-wrap" style="flex:1">
+          <span class="si-ic">⌕</span>
+          <input v-model="qProd" class="si" placeholder="기기명으로 검색" />
+        </div>
+      </div>
 
       <!-- 상태 탭 -->
       <div class="status-tabs">
@@ -35,7 +41,15 @@
               <span class="cust-nm">{{ a.customer_name }}</span>
               <span class="status-bd" :class="`sb-${stKey(a.status)}`">{{ a.status }}</span>
             </div>
-            <div class="row-mid">{{ a.product_name || a.serial_number || '기기 미지정' }}</div>
+            <div class="row-mid">
+              <span class="row-device-lbl">AS 접수 기기 :</span>
+              <span class="row-device-nm">{{ a.product_name || a.serial_number || '기기 미지정' }}</span>
+              <template v-if="a.loaner_note">
+                <span class="row-loaner-sep"></span>
+                <span class="loaner-tag" :class="a.loaner_return_date ? 'loaner-returned' : 'loaner-out'">[대여 기기 : {{ a.loaner_note }}]</span>
+                <span v-if="!a.loaner_return_date" class="loaner-unreturned">미회수</span>
+              </template>
+            </div>
             <div class="row-bot">
               <span class="row-dt">{{ fmtDate(a.created_at) }}</span>
               <span v-if="a.received_by_name" class="row-staff">{{ a.received_by_name }}</span>
@@ -102,6 +116,60 @@
 
         <!-- ── 스크롤 영역 ── -->
         <div class="det-body">
+
+          <!-- 대여 기기 섹션 -->
+          <div v-if="selected.loaner_note" class="section loaner-section">
+            <div class="sec-title">대여 기기</div>
+            <div class="loaner-box" :class="selected.loaner_return_date ? 'lb-returned' : 'lb-out'">
+              <div class="lb-info">
+                <div class="lb-name">{{ selected.loaner_note }}</div>
+                <div class="lb-dates">
+                  <span>출고 {{ fmtDateTime(selected.loaner_out_date) }}</span>
+                  <span v-if="selected.loaner_return_date" class="lb-ret">· 회수 {{ fmtDateTime(selected.loaner_return_date) }}</span>
+                </div>
+              </div>
+              <div class="lb-status">
+                <template v-if="selected.loaner_return_date">
+                  <span class="loaner-badge lb-done">회수 완료</span>
+                  <button class="loaner-badge lb-btn-cancel" @click="cancelReturnLoaner">회수 취소</button>
+                </template>
+                <template v-else>
+                  <button class="loaner-badge lb-btn" @click="returnLoaner">회수 완료 처리</button>
+                  <button class="loaner-badge lb-btn-unreturned" @click="openUnreturnedModal">미반납 처리 요청</button>
+                </template>
+              </div>
+            </div>
+          </div>
+
+          <!-- 미반납 처리 요청 모달 -->
+          <div v-if="showUnreturnedModal" class="modal-back" @click.self="showUnreturnedModal=false">
+            <div class="modal modal-sm">
+              <div class="modal-hd">
+                <div>
+                  <div class="mh-title">대여 기기 미반납 처리 요청</div>
+                  <div class="mh-sub">매니저·총괄·사장에게 처리 승인을 요청합니다</div>
+                </div>
+                <button class="btn-close" @click="showUnreturnedModal=false">✕</button>
+              </div>
+              <div class="modal-body">
+                <div class="lb-info" style="margin-bottom:8px;padding:8px 10px;background:var(--bg3);border-radius:6px;font-size:12px">
+                  <div><b>대여 기기 :</b> {{ selected.loaner_note }}</div>
+                  <div><b>고객명 :</b> {{ selected.customer_name }}</div>
+                </div>
+                <div class="fg-row">
+                  <label class="fg-lbl">사유 <span style="color:var(--re)">필수</span></label>
+                  <textarea v-model="unreturnedReason" class="inp" rows="3" placeholder="미반납 사유를 입력하세요" />
+                </div>
+              </div>
+              <div v-if="unreturnedErr" style="color:var(--re);font-size:11px;padding:0 16px">{{ unreturnedErr }}</div>
+              <div class="modal-ft">
+                <button class="btn-ghost" @click="showUnreturnedModal=false">취소</button>
+                <button class="btn-submit" :disabled="unreturnedLoading" @click="submitUnreturned">
+                  {{ unreturnedLoading ? '요청 중…' : '요청 전송' }}
+                </button>
+              </div>
+            </div>
+          </div>
 
           <!-- 처리 내용 폼 -->
           <div class="section">
@@ -307,6 +375,7 @@ function isStepDone(s) {
 const items        = ref([])
 const loading      = ref(false)
 const q            = ref('')
+const qProd        = ref('')
 const statusFilter = ref('')
 
 const filtered = computed(() => {
@@ -315,8 +384,14 @@ const filtered = computed(() => {
   if (q.value.trim()) {
     const kw = q.value.trim()
     list = list.filter(a =>
-      a.customer_name?.includes(kw) || a.customer_phone?.includes(kw) ||
-      a.product_name?.includes(kw)  || a.serial_number?.includes(kw)
+      a.customer_name?.includes(kw) || a.customer_phone?.includes(kw)
+    )
+  }
+  if (qProd.value.trim()) {
+    const kw = qProd.value.trim()
+    list = list.filter(a =>
+      a.product_name?.includes(kw) || a.serial_number?.includes(kw) ||
+      a.symptom?.includes(kw)
     )
   }
   return list
@@ -411,6 +486,56 @@ async function selectCase(id) {
   finally { detailLoading.value = false }
 }
 
+async function returnLoaner() {
+  try {
+    const res = await api.post(`/as-cases/${selected.value.id}/return-loaner`)
+    const idx = items.value.findIndex(a => a.id === selected.value.id)
+    if (idx !== -1) items.value[idx] = { ...items.value[idx], ...res.data }
+    selected.value = { ...selected.value, ...res.data }
+    detailLogs.value = res.data.logs ?? detailLogs.value
+  } catch (e) {
+    alert(e.response?.data?.detail || '회수 처리 실패')
+  }
+}
+
+async function cancelReturnLoaner() {
+  try {
+    const res = await api.post(`/as-cases/${selected.value.id}/cancel-return-loaner`)
+    const idx = items.value.findIndex(a => a.id === selected.value.id)
+    if (idx !== -1) items.value[idx] = { ...items.value[idx], ...res.data }
+    selected.value = { ...selected.value, ...res.data }
+    detailLogs.value = res.data.logs ?? detailLogs.value
+  } catch (e) {
+    alert(e.response?.data?.detail || '회수 취소 실패')
+  }
+}
+
+const showUnreturnedModal = ref(false)
+const unreturnedReason    = ref('')
+const unreturnedLoading   = ref(false)
+const unreturnedErr       = ref('')
+
+function openUnreturnedModal() {
+  unreturnedReason.value = ''
+  unreturnedErr.value    = ''
+  showUnreturnedModal.value = true
+}
+
+async function submitUnreturned() {
+  unreturnedErr.value = ''
+  if (!unreturnedReason.value.trim()) { unreturnedErr.value = '사유를 입력해주세요'; return }
+  unreturnedLoading.value = true
+  try {
+    await api.post(`/as-cases/${selected.value.id}/unreturned-loaner`, {
+      reason: unreturnedReason.value.trim(),
+    })
+    showUnreturnedModal.value = false
+    await selectCase(selected.value.id)
+  } catch (e) {
+    unreturnedErr.value = e.response?.data?.detail || '요청 실패'
+  } finally { unreturnedLoading.value = false }
+}
+
 async function submitEdit() {
   saving.value = true
   saveMsg.value = ''
@@ -500,13 +625,13 @@ async function submitNew() {
   if (!nf.value.customer) { nErr.value = 'cust'; return }
   if (!nf.value.product && !nf.value.prodManual.trim()) { nErr.value = 'prod'; return }
   newLoading.value = true
-  const loaner = nf.value.loanerNote.trim() ? `[대여기기: ${nf.value.loanerNote.trim()}]\n` : ''
   try {
     await api.post('/as-cases', {
       customer_id:   nf.value.customer.id,
       product_id:    nf.value.product?.id || undefined,
       serial_number: !nf.value.product ? (nf.value.prodManual.trim() || undefined) : undefined,
-      symptom:       (loaner + nf.value.symptom.trim()) || undefined,
+      symptom:       nf.value.symptom.trim() || undefined,
+      loaner_note:   nf.value.loanerNote.trim() || undefined,
     })
     showNewModal.value = false
     await load()
@@ -597,11 +722,37 @@ function fmtDateTime(dt) {
 
 .row-top  { display:flex; align-items:center; justify-content:space-between; margin-bottom:3px; }
 .cust-nm  { font-size:13px; font-weight:700; color:var(--tx); }
-.row-mid  { font-size:11px; color:var(--tx2); margin-bottom:3px; }
+.row-mid  { font-size:11px; color:var(--tx2); margin-bottom:2px; display:flex; align-items:center; gap:4px; }
+.row-device-lbl { font-size:10px; color:var(--tx3); flex-shrink:0; }
+.row-device-nm  { font-weight:700; color:var(--tx); font-size:12px; }
+.row-loaner-sep { flex-shrink:0; width:20px; }
+.loaner-tag { font-size:10px; }
+.loaner-out { color:#b45309; }
+.loaner-returned { color:var(--tx3); text-decoration:line-through; }
+.loaner-unreturned { font-size:9px; background:#fef3c7; color:#b45310; border-radius:8px; padding:1px 5px; font-family:var(--mono); font-weight:600; }
 .row-bot  { display:flex; align-items:center; gap:6px; }
 .row-dt   { font-size:10px; color:var(--tx3); font-family:var(--mono); }
 .row-staff { font-size:10px; color:var(--tx3); background:var(--bg3); padding:1px 5px; border-radius:8px; }
 .row-sym  { font-size:10px; color:var(--tx3); margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* ── 대여 기기 섹션 ────────────────────────────────────────── */
+.loaner-section { }
+.loaner-box { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-radius:8px; border:1px solid; }
+.lb-out { background:#fffbeb; border-color:#fcd34d; }
+.lb-returned { background:var(--bg3); border-color:var(--bd); }
+.lb-info { display:flex; flex-direction:column; gap:4px; }
+.lb-name { font-size:13px; font-weight:700; color:var(--tx); }
+.lb-dates { font-size:10px; color:var(--tx3); font-family:var(--mono); }
+.lb-ret { color:var(--gr); }
+.loaner-badge { display:inline-flex; align-items:center; padding:5px 12px; border-radius:6px; font-size:11px; font-weight:600; white-space:nowrap; }
+.lb-done { background:#dcfce7; color:#16a34a; border:none; }
+.lb-btn { background:var(--ac); color:#fff; border:none; cursor:pointer; }
+.lb-btn:hover { opacity:.85; }
+.lb-btn-cancel { background:var(--bg3); color:var(--tx2); border:1px solid var(--bd2); cursor:pointer; }
+.lb-btn-cancel:hover { background:var(--bd2); }
+.lb-btn-unreturned { background:#f97316; color:#fff; border:none; cursor:pointer; }
+.lb-btn-unreturned:hover { opacity:.85; }
+.lb-status { display:flex; gap:6px; flex-wrap:wrap; }
 
 /* 행 왼쪽 색상 */
 .row-ye { border-left-color:#e8a800; }

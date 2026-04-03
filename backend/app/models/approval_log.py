@@ -17,6 +17,8 @@ class ExceptionType(str, enum.Enum):
     교환승인      = "교환승인"
     매장간이동    = "매장간이동"
     일마감정정    = "일마감정정"
+    회원삭제      = "회원삭제"
+    대여기기미반납 = "대여기기미반납"
     기타          = "기타"
 
 
@@ -48,6 +50,7 @@ class ApprovalLog(Base):
     exchange_case_id = Column(Integer, ForeignKey("exchange_cases.id"), nullable=True)
     day_close_id     = Column(Integer, ForeignKey("day_closes.id"), nullable=True)
     customer_id      = Column(Integer, ForeignKey("customers.id"), nullable=True)
+    as_case_id       = Column(Integer, ForeignKey("as_cases.id"), nullable=True)
 
     requested_at    = Column(DateTime(timezone=True), server_default=func.now())
     approved_at     = Column(DateTime(timezone=True), nullable=True)

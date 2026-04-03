@@ -26,7 +26,7 @@ import app.models.day_close
 import app.models.approval_log
 import app.models.store_transfer
 
-from app.routers import products, transactions, customers, inventory, auth, transfers, as_cases, unpaid, reservations
+from app.routers import products, transactions, customers, inventory, auth, transfers, as_cases, unpaid, reservations, approvals
 
 app = FastAPI(title="VapeERP API", version="1.0.0")
 
@@ -47,6 +47,7 @@ app.include_router(transfers.router,  prefix="/transfers",  tags=["택배/배달
 app.include_router(as_cases.router,    prefix="/as-cases",    tags=["A/S"])
 app.include_router(unpaid.router,      prefix="/unpaid",      tags=["미수령"])
 app.include_router(reservations.router, prefix="/reservations", tags=["예약주문"])
+app.include_router(approvals.router,    prefix="/approvals",    tags=["승인로그"])
 
 
 @app.get("/")

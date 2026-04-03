@@ -18,6 +18,7 @@ from sqlalchemy.orm import selectinload, joinedload
 from app.database import get_db
 from app.models.customer import Customer
 from app.models.mileage_ledger import MileageLedger
+from app.models.approval_log import ApprovalLog, ExceptionType, ApprovalStatus
 from app.models.transaction import Transaction
 from app.models.transaction_line import TransactionLine
 from app.models.product import Product, DEVICE_ALL
@@ -378,3 +379,56 @@ async def get_reservations(
         }
         for r, s, p in rows
     ]
+
+
+# ── 삭제 요청 ─────────────────────────────────────────────────
+class DeleteRequestBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/{customer_id}/delete-request")
+async def request_delete_customer(
+    customer_id: int,
+    body: DeleteRequestBody,
+    db: AsyncSession = Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    c = await db.scalar(select(Customer).where(Customer.id == customer_id, Customer.is_deleted == False))
+    if not c:
+        raise HTTPException(404, "고객을 찾을 수 없습니다")
+
+    # 이미 대기 중인 삭제 요청이 있으면 중복 방지
+    existing = await db.scalar(
+        select(ApprovalLog).where(
+            ApprovalLog.customer_id == customer_id,
+            ApprovalLog.exception_type == ExceptionType.회원삭제,
+            ApprovalLog.status == ApprovalStatus.대기,
+        )
+    )
+    if existing:
+        raise HTTPException(409, "이미 삭제 승인 대기 중인 요청이 있습니다")
+
+    from datetime import datetime, timezone
+    from sqlalchemy import func as sqlfunc
+    ts = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+    log_number = f"DEL-{ts}-{customer_id}"
+
+    lg = ApprovalLog(
+        log_number       = log_number,
+        exception_type   = ExceptionType.회원삭제,
+        status           = ApprovalStatus.대기,
+        exception_reason = body.reason or "회원 삭제 요청",
+        original_value   = {"name": c.name, "phone": c.phone},
+        requested_by     = current_staff.id,
+        customer_id      = customer_id,
+    )
+    db.add(lg)
+    await db.commit()
+    await db.refresh(lg)
+    return {
+        "id":           lg.id,
+        "log_number":   lg.log_number,
+        "status":       lg.status,
+        "customer_id":  customer_id,
+        "customer_name": c.name,
+    }

@@ -39,6 +39,7 @@ class AsCase(Base):
     repair_cost        = Column(Integer, nullable=True)
 
     loaner_product_id  = Column(Integer, ForeignKey("products.id"), nullable=True)
+    loaner_note        = Column(String(200), nullable=True)   # 대여 기기 이름 (텍스트)
     loaner_out_date    = Column(DateTime(timezone=True), nullable=True)
     loaner_return_date = Column(DateTime(timezone=True), nullable=True)
 

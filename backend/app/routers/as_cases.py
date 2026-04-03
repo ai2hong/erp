@@ -6,6 +6,7 @@ POST /as-cases              — 신규 접수
 PUT  /as-cases/{id}         — 증상·진단·처리·판정 수정
 POST /as-cases/{id}/next    — 다음 상태로 진행
 """
+from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -15,6 +16,7 @@ from app.models.as_case_log import AsCaseLog
 from app.models.customer import Customer
 from app.models.product import Product
 from app.models.staff import Staff
+from app.models.approval_log import ApprovalLog, ExceptionType, ApprovalStatus
 from app.core.deps import get_current_staff
 from pydantic import BaseModel
 from typing import Optional
@@ -49,6 +51,9 @@ def _as_dict(a: AsCase, customer: Customer = None, product: Product = None, staf
         "repair_cost":       a.repair_cost,
         "received_by":       a.received_by,
         "received_by_name":  staff.name     if staff    else None,
+        "loaner_note":       a.loaner_note,
+        "loaner_out_date":   a.loaner_out_date,
+        "loaner_return_date": a.loaner_return_date,
         "created_at":        a.created_at,
         "updated_at":        a.updated_at,
         "next_status":       _next_status(a.status),
@@ -60,6 +65,7 @@ class AsCaseCreate(BaseModel):
     product_id:    Optional[int] = None
     serial_number: Optional[str] = None
     symptom:       Optional[str] = None
+    loaner_note:   Optional[str] = None
 
 
 class AsCaseUpdate(BaseModel):
@@ -159,6 +165,7 @@ async def create_as_case(
         raise HTTPException(404, "고객을 찾을 수 없습니다")
 
     try:
+        loaner = body.loaner_note.strip() if body.loaner_note else None
         a = AsCase(
             customer_id=body.customer_id,
             product_id=body.product_id,
@@ -167,6 +174,8 @@ async def create_as_case(
             status=AsStatus.접수,
             received_by=current_staff.id,
             store_id=current_staff.store_id,
+            loaner_note=loaner,
+            loaner_out_date=datetime.now(timezone.utc) if loaner else None,
         )
         db.add(a)
         await db.flush()
@@ -348,3 +357,141 @@ async def set_status(
         raise HTTPException(500, f"DB 저장 실패: {str(e)}")
 
     return await _fetch_with_logs(case_id, a, db)
+
+
+# ── 대여 기기 회수 처리 ────────────────────────────────────────
+@router.post("/{case_id}/return-loaner")
+async def return_loaner(
+    case_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    a = await db.scalar(select(AsCase).where(AsCase.id == case_id))
+    if not a:
+        raise HTTPException(404, "A/S 건을 찾을 수 없습니다")
+    if not a.loaner_note:
+        raise HTTPException(400, "대여 기기 정보가 없습니다")
+    if a.loaner_return_date:
+        raise HTTPException(400, "이미 회수 처리되었습니다")
+
+    a.loaner_return_date = datetime.now(timezone.utc)
+    log = AsCaseLog(
+        as_case_id=case_id,
+        from_status=a.status,
+        to_status=a.status,
+        staff_id=current_staff.id,
+        memo=f"[대여기기 회수] {a.loaner_note}",
+    )
+    db.add(log)
+    try:
+        await db.commit()
+        await db.refresh(a)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(500, f"DB 저장 실패: {str(e)}")
+
+    return await _fetch_with_logs(case_id, a, db)
+
+
+# ── 대여 기기 회수 취소 ────────────────────────────────────────
+@router.post("/{case_id}/cancel-return-loaner")
+async def cancel_return_loaner(
+    case_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    a = await db.scalar(select(AsCase).where(AsCase.id == case_id))
+    if not a:
+        raise HTTPException(404, "A/S 건을 찾을 수 없습니다")
+    if not a.loaner_return_date:
+        raise HTTPException(400, "회수 처리된 내역이 없습니다")
+
+    a.loaner_return_date = None
+    log = AsCaseLog(
+        as_case_id=case_id,
+        from_status=a.status,
+        to_status=a.status,
+        staff_id=current_staff.id,
+        memo=f"[대여기기 회수 취소] {a.loaner_note}",
+    )
+    db.add(log)
+    try:
+        await db.commit()
+        await db.refresh(a)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(500, f"DB 저장 실패: {str(e)}")
+
+    return await _fetch_with_logs(case_id, a, db)
+
+
+# ── 대여 기기 미반납 처리 요청 ────────────────────────────────
+class UnreturnedBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@router.post("/{case_id}/unreturned-loaner")
+async def request_unreturned_loaner(
+    case_id: int,
+    body: UnreturnedBody,
+    db: AsyncSession = Depends(get_db),
+    current_staff=Depends(get_current_staff),
+):
+    a = await db.scalar(select(AsCase).where(AsCase.id == case_id))
+    if not a:
+        raise HTTPException(404, "A/S 건을 찾을 수 없습니다")
+    if not a.loaner_note:
+        raise HTTPException(400, "대여 기기 정보가 없습니다")
+    if a.loaner_return_date:
+        raise HTTPException(400, "이미 회수 완료된 건입니다")
+
+    # 이미 대기중인 미반납 요청 중복 방지
+    existing = await db.scalar(
+        select(ApprovalLog).where(
+            ApprovalLog.as_case_id == case_id,
+            ApprovalLog.exception_type == ExceptionType.대여기기미반납,
+            ApprovalLog.status == ApprovalStatus.대기,
+        )
+    )
+    if existing:
+        raise HTTPException(409, "이미 미반납 처리 요청이 대기 중입니다")
+
+    from datetime import datetime, timezone as tz_
+    ts = datetime.now(tz_.utc).strftime("%Y%m%d%H%M%S")
+    c = await db.scalar(select(Customer).where(Customer.id == a.customer_id))
+
+    lg = ApprovalLog(
+        log_number       = f"LNR-{ts}-{case_id}",
+        exception_type   = ExceptionType.대여기기미반납,
+        status           = ApprovalStatus.대기,
+        exception_reason = body.reason or "대여 기기 미반납",
+        original_value   = {
+            "as_case_id":    case_id,
+            "loaner_note":   a.loaner_note,
+            "customer_name": c.name if c else None,
+            "customer_phone": c.phone if c else None,
+        },
+        requested_by  = current_staff.id,
+        customer_id   = a.customer_id,
+        as_case_id    = case_id,
+    )
+    db.add(lg)
+
+    log = AsCaseLog(
+        as_case_id=case_id,
+        from_status=a.status,
+        to_status=a.status,
+        staff_id=current_staff.id,
+        memo=f"[대여기기 미반납 요청] {a.loaner_note}",
+    )
+    db.add(log)
+
+    try:
+        await db.commit()
+        await db.refresh(lg)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(500, f"DB 저장 실패: {str(e)}")
+
+    return {"id": lg.id, "log_number": lg.log_number, "status": lg.status}
+

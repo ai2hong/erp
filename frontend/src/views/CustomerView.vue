@@ -170,6 +170,11 @@
             </div>
           </div>
         </div>
+
+        <!-- 회원 삭제 요청 버튼 -->
+        <div style="padding:8px 12px 12px">
+          <button class="btn re w100" @click="openDelReq">회원 삭제 요청</button>
+        </div>
       </div>
 
       <!-- ── 콘텐츠 영역 ── -->
@@ -446,6 +451,36 @@
         <div class="modal-ft">
           <button class="btn" @click="showMileAdj=false">취소</button>
           <button class="btn pr" :disabled="mileAdjLoading" @click="submitMileAdj">{{ mileAdjLoading?'처리 중…':'저장' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 회원 삭제 요청 모달 -->
+    <div v-if="showDelReqModal" class="modal-backdrop" @click.self="showDelReqModal=false">
+      <div class="modal" style="width:360px">
+        <div class="modal-hd" style="color:var(--re)">회원 삭제 요청</div>
+        <div style="font-size:12px;color:var(--tx2);margin-bottom:12px">
+          요청을 보내면 담당자 확인 후 처리됩니다.
+        </div>
+        <div class="info-row">
+          <span class="info-k">회원명 :</span>
+          <span>{{ customer?.name }}</span>
+        </div>
+        <div class="info-row">
+          <span class="info-k">전화번호 :</span>
+          <span class="mono">{{ customer?.phone }}</span>
+        </div>
+        <div class="ef-field" style="margin-top:12px">
+          <label>삭제 사유</label>
+          <textarea v-model="delReqReason" class="inp" rows="3" placeholder="삭제 사유를 입력하세요 (선택)" />
+        </div>
+        <div v-if="delReqErr" class="ef-err">{{ delReqErr }}</div>
+        <div v-if="delReqOk" style="font-size:12px;color:var(--gr);margin-top:4px">{{ delReqOk }}</div>
+        <div class="modal-ft">
+          <button class="btn" @click="showDelReqModal=false">취소</button>
+          <button class="btn re" :disabled="delReqLoading" @click="submitDelReq">
+            {{ delReqLoading ? '요청 중…' : '삭제 요청' }}
+          </button>
         </div>
       </div>
     </div>
@@ -789,6 +824,29 @@ async function submitMileAdj() {
     showMileAdj.value = false
   } catch (e) { mileAdjErr.value = e.response?.data?.detail || '실패' }
   finally { mileAdjLoading.value = false }
+}
+
+// ── 회원 삭제 요청 ────────────────────────────────────────────
+const showDelReqModal = ref(false)
+const delReqReason    = ref('')
+const delReqErr       = ref('')
+const delReqOk        = ref('')
+const delReqLoading   = ref(false)
+
+function openDelReq() {
+  delReqReason.value = ''; delReqErr.value = ''; delReqOk.value = ''
+  showDelReqModal.value = true
+}
+
+async function submitDelReq() {
+  delReqErr.value = ''; delReqOk.value = ''
+  delReqLoading.value = true
+  try {
+    await api.post(`/customers/${customer.value.id}/delete-request`, { reason: delReqReason.value || null })
+    delReqOk.value = '삭제 요청이 접수되었습니다. 담당자 확인 후 처리됩니다.'
+  } catch (e) {
+    delReqErr.value = e.response?.data?.detail || '요청 실패'
+  } finally { delReqLoading.value = false }
 }
 
 // ── 전화번호 자동 포맷 ────────────────────────────────────────
